@@ -1,0 +1,17 @@
+digraph G {
+    rankdir=LR;
+    node [shape=circle];
+    
+    A [label="A"];
+    B [label="B"];
+    C [label="C"];
+    D [label="D"];
+
+    A -> B [label="Token X"];
+    A -> C [label="Token X"];
+    A -> D [label="Token Y"];
+    B -> C [label="Token Z"];
+    B -> D [label="Token X"];
+
+    label = "Multi-Directed Graph Representation";
+}

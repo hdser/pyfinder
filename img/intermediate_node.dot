@@ -1,0 +1,27 @@
+digraph G {
+    rankdir=LR;
+    node [shape=circle];
+    
+    A [label="A"];
+    B [label="B"];
+    C [label="C"];
+    D [label="D"];
+
+    A_X [label="A_X", shape=diamond];
+    A_Y [label="A_Y", shape=diamond];
+    B_X [label="B_X", shape=diamond];
+    B_Z [label="B_Z", shape=diamond];
+
+    A -> A_X [label="balance(A,X)"];
+    A -> A_Y;
+    B -> B_X;
+    B -> B_Z;
+
+    A_X -> B [label="balance(A,X)"];
+    A_X -> C [label="balance(A,X)"];
+    A_Y -> D;
+    B_X -> D;
+    B_Z -> C;
+
+    label = "Improved Graph with Intermediate Nodes";
+}
