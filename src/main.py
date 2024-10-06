@@ -61,7 +61,7 @@ def run_mode(graph_manager: GraphManager):
 
         try:
             start_time = time.time()
-            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
+            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows, aggregated_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
             end_time = time.time()
 
             print(f"\nAlgorithm: {algo_name}")
@@ -71,6 +71,10 @@ def run_mode(graph_manager: GraphManager):
                 print(f"Requested flow: {requested_flow}")
                 if Decimal(flow_value) < Decimal(requested_flow):
                     print("Note: Achieved flow is less than requested flow.")
+
+            print("\nAggregated Transfers:")
+            for (u, v, token), flow in aggregated_flows.items():
+                print(f"{u} --> {v} (Flow: {flow}, Token: {token})")
 
             output_dir = 'output'
             graph_manager.visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)
@@ -104,13 +108,7 @@ def benchmark_mode(graph_manager: GraphManager, source_sink_pairs: List[Tuple[st
             
             try:
                 start_time = time.time()
-                if algo_func in [maximum_flow_value, minimum_cut_value]:
-                    flow_value = algo_func(graph_manager.graph.g_nx, source, sink)
-                elif algo_func == minimum_cut:
-                    cut_value, partition = algo_func(graph_manager.graph.g_nx, source, sink)
-                    flow_value = cut_value
-                else:
-                    flow_value, _, _, _ = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
+                flow_value, _, _, _, aggregated_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
                 end_time = time.time()
                 execution_time = end_time - start_time
 
@@ -120,7 +118,8 @@ def benchmark_mode(graph_manager: GraphManager, source_sink_pairs: List[Tuple[st
                     'Sink': sink,
                     'Flow Value': str(flow_value),
                     'Requested Flow': requested_flow if requested_flow is not None else 'Max',
-                    'Execution Time': execution_time
+                    'Execution Time': execution_time,
+                    'Num Aggregated Transfers': len(aggregated_flows)
                 })
             except nx.NetworkXError as e:
                 print(f"Error occurred for {algo_name} with source {source} and sink {sink}: {str(e)}")
