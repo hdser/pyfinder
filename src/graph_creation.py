@@ -14,14 +14,13 @@ class NetworkXGraph:
 
     def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[Decimal, Dict[str, Dict[str, Decimal]]]:
         if flow_func is None:
-            flow_func = nx.algorithms.flow.edmonds_karp
+            flow_func = nx.algorithms.flow.preflow_push
 
         flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
         
         if requested_flow is not None:
             requested_flow_decimal = Decimal(requested_flow)
             if Decimal(flow_value) > requested_flow_decimal:
-                # Limit the flow to the requested amount
                 flow_value = requested_flow_decimal
                 flow_dict = self._limit_flow(flow_dict, source, sink, requested_flow_decimal)
 

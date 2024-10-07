@@ -1,7 +1,10 @@
 import panel as pn
 import param
+import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from collections import defaultdict
 import io
 from src.graph_manager import GraphManager
 from src.visualization import Visualization
@@ -17,8 +20,8 @@ from networkx.algorithms.flow import (
 pn.extension()
 
 class NetworkFlowDashboard(param.Parameterized):
-    source = param.String(default="9")
-    sink = param.String(default="318")
+    source = param.String(default="0x2607f42a1b877adf9385d2b24f87261faf9fdfe9")
+    sink = param.String(default="0x73afeb464f1eb5dec32a0ac229f53a2e37e86c00")
     requested_flow = param.String(default="")
     algorithm = param.ObjectSelector(default="Default (Preflow Push)", objects=[
         "Default (Preflow Push)",
@@ -154,6 +157,7 @@ class NetworkFlowDashboard(param.Parameterized):
 
     def create_aggregated_graph(self, aggregated_flows, title):
         plt.figure(figsize=(10, 7))
+        ax = plt.gca()
         
         # Create a graph with aggregated flows
         G = nx.MultiDiGraph()
@@ -164,28 +168,64 @@ class NetworkFlowDashboard(param.Parameterized):
         source = next(node for node in G.nodes() if G.in_degree(node) == 0)
         sink = next(node for node in G.nodes() if G.out_degree(node) == 0)
 
+        # Generate positions for nodes
         pos = self.visualization.custom_flow_layout(G, source, sink)
         
         # Draw nodes
-        nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_shape='o', node_size=500)
-        nx.draw_networkx_labels(G, pos, font_size=8, font_weight='bold')
+        nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_shape='o', node_size=500, ax=ax)
+        nx.draw_networkx_labels(G, pos, font_size=8, font_weight='bold', ax=ax)
 
-        # Draw edges
-        nx.draw_networkx_edges(G, pos, edge_color='gray', arrows=True, arrowsize=20, connectionstyle="arc3,rad=0.1")
-
-        # Prepare edge labels
+        # Prepare edge labels and organize edges between the same nodes
         edge_labels = {}
-        for (u, v, k) in G.edges(keys=True):
-            edge_data = G[u][v][k]
-            label = f"Flow: {edge_data['flow']}\nToken: {edge_data['token']}"
-            edge_labels[(u, v, k)] = label
-        
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=6)
+        edges_between_nodes = defaultdict(list)
+        for u, v, k in G.edges(keys=True):
+            edges_between_nodes[(u, v)].append(k)
+
+        # Draw edges with different curvatures
+        for (u, v), keys in edges_between_nodes.items():
+            num_edges = len(keys)
+            if num_edges == 1:
+                rad_list = [0.0]  # No curvature needed for a single edge
+            else:
+                # Assign curvature values ranging from -0.5 to 0.5
+                rad_list = np.linspace(-0.5, 0.5, num_edges)
+            for k, rad in zip(keys, rad_list):
+                edge_data = G[u][v][k]
+                label = f"Flow: {edge_data['flow']}\nToken: {edge_data['token']}"
+                edge_labels[(u, v, k)] = label
+
+                # Get positions of source and target nodes
+                x1, y1 = pos[u]
+                x2, y2 = pos[v]
+
+                # Create a curved arrow between the nodes
+                arrow = mpatches.FancyArrowPatch(
+                    (x1, y1), (x2, y2),
+                    connectionstyle=f"arc3,rad={rad}",
+                    arrowstyle='-|>',
+                    mutation_scale=20,
+                    color='gray',
+                    linewidth=1,
+                    zorder=1  # Ensure edges are drawn below nodes
+                )
+                ax.add_patch(arrow)
+
+                # Calculate label position along the edge
+                # Adjust label position based on curvature
+                dx = x2 - x1
+                dy = y2 - y1
+                angle = np.arctan2(dy, dx)
+                offset = np.array([-np.sin(angle), np.cos(angle)]) * rad * 0.5
+                midpoint = np.array([(x1 + x2) / 2, (y1 + y2) / 2]) + offset
+
+                # Add the label at the calculated position
+                plt.text(midpoint[0], midpoint[1], label, fontsize=6, ha='center', va='center', zorder=2)
 
         plt.title(title, fontsize=16)
         plt.axis('off')
         plt.tight_layout()
         
+        # Save the figure to a buffer
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
         buf.seek(0)

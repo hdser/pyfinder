@@ -1,27 +1,36 @@
 import pandas as pd
 from decimal import Decimal
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 class DataIngestion:
     def __init__(self, df_trusts: pd.DataFrame, df_balances: pd.DataFrame):
         self.df_trusts = df_trusts
         self.df_balances = df_balances
-        self.unique_df = self._create_unique_df()
+        self.address_to_id, self.id_to_address = self._create_id_mappings()
         self.edges, self.capacities, self.tokens = self._create_edge_data()
 
-    def _create_unique_df(self) -> pd.DataFrame:
-        unique_addresses = pd.concat([self.df_trusts['trustee'], self.df_trusts['truster'], self.df_balances['account']]).drop_duplicates().reset_index(drop=True)
-        unique_df = pd.DataFrame(unique_addresses, columns=['address']).reset_index()
-        unique_df.rename(columns={'index': 'unique_id'}, inplace=True)
-        return unique_df
+    def _create_id_mappings(self) -> Tuple[Dict[str, str], Dict[str, str]]:
+        unique_addresses = pd.concat([
+            self.df_trusts['trustee'], 
+            self.df_trusts['truster'], 
+            self.df_balances['account'],
+            self.df_balances['tokenAddress']
+        ]).drop_duplicates().reset_index(drop=True)
+        
+        address_to_id = {addr.lower(): str(idx) for idx, addr in enumerate(unique_addresses)}
+        id_to_address = {str(idx): addr.lower() for idx, addr in enumerate(unique_addresses)}
+        
+        return address_to_id, id_to_address
 
     def _create_edge_data(self) -> Tuple[List[Tuple[str, str]], List[float], List[str]]:
         edges = []
         capacities = []
         tokens = []
         unique_trusters = self.df_trusts['truster'].unique()
-
+        i = 0
         for truster in unique_trusters:
+            print(len(unique_trusters) - i)
+            i += 1
             unique_trustees = list(self.df_trusts[self.df_trusts['truster']==truster]['trustee'].unique())
             unique_trustees.append(truster)
 
@@ -32,11 +41,14 @@ class DataIngestion:
             for _, (demurragedTotalBalance, account, tokenAddress) in df_trusted_token_balances.iterrows():
                 balance = self._convert_balance(demurragedTotalBalance)
                 if float(balance) > 0:
-                    account_id = str(self.unique_df[self.unique_df['address']==account]['unique_id'].values[0])
-                    truster_id = str(self.unique_df[self.unique_df['address']==truster]['unique_id'].values[0])
-                    token_id = str(self.unique_df[self.unique_df['address']==tokenAddress]['unique_id'].values[0])
-                    edges.append((account_id, account_id+'_'+token_id))
-                    edges.append((account_id+'_'+token_id, truster_id))
+                    account_id = self.address_to_id[account.lower()]
+                    truster_id = self.address_to_id[truster.lower()]
+                    token_id = self.address_to_id[tokenAddress.lower()]
+
+                    intermediate_node = f"{account_id}_{token_id}"
+
+                    edges.append((account_id, intermediate_node))
+                    edges.append((intermediate_node, truster_id))
                     capacities.extend([balance, balance])
                     tokens.extend([token_id, token_id])
 
@@ -45,4 +57,9 @@ class DataIngestion:
     @staticmethod
     def _convert_balance(balance_str: str) -> int:
         return Decimal(balance_str)
-#        return int(Decimal(balance_str)/10**18)
+
+    def get_id_for_address(self, address: str) -> str:
+        return self.address_to_id.get(address.lower())
+
+    def get_address_for_id(self, id: str) -> str:
+        return self.id_to_address.get(id)
