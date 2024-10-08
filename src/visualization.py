@@ -87,7 +87,7 @@ class Visualization:
 
         Visualization.add_id_address_mapping(fig, ax_text, id_to_address, g.nodes(), g.edges(data=True))
 
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.savefig(filename, bbox_inches='tight')
         plt.close()
         print(f"Full graph saved to {filename}")
 
@@ -207,7 +207,7 @@ class Visualization:
 
         Visualization.add_id_address_mapping(fig, ax_text, id_to_address, flow_graph.nodes(), flow_graph.edges(data=True, keys=True))
 
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.savefig(filename, bbox_inches='tight')
         plt.close()
         print(f"Simplified flow paths graph saved to {filename}")
 
@@ -281,7 +281,7 @@ class Visualization:
 
         Visualization.add_id_address_mapping(fig, ax_text, id_to_address, flow_graph.nodes(), flow_graph.edges(data=True))
 
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.savefig(filename, bbox_inches='tight')
         plt.close()
         print(f"Full flow paths graph saved to {filename}")
 

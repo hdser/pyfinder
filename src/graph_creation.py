@@ -1,6 +1,7 @@
 import networkx as nx
 from typing import List, Tuple, Dict, Callable, Optional
 from decimal import Decimal
+import json
 
 class NetworkXGraph:
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
@@ -16,8 +17,15 @@ class NetworkXGraph:
         if flow_func is None:
             flow_func = nx.algorithms.flow.preflow_push
 
+        print('Started Flow Computation...')
         flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
-        
+        print('Ended Flow Computation...')
+       # with open('output/flow_dic.json', 'w') as f:
+       #     json.dump(
+       #         flow_dict, 
+       #         f, 
+       #         default=lambda obj: str(obj) if isinstance(obj, Decimal) else TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable"))
+
         if requested_flow is not None:
             requested_flow_decimal = Decimal(requested_flow)
             if Decimal(flow_value) > requested_flow_decimal:
@@ -73,6 +81,9 @@ class NetworkXGraph:
         paths = []
         edge_flows = {}
         
+        # Create a deep copy of flow_dict
+        remaining_flow = {u: {v: flow for v, flow in flows.items()} for u, flows in flow_dict.items()}
+        
         def find_path_iterative(source, sink):
             stack = [(source, [source], Decimal('Infinity'))]
             visited = set()
@@ -87,7 +98,7 @@ class NetworkXGraph:
                     continue
                 visited.add(node)
 
-                for next_node, flow_value in flow_dict[node].items():
+                for next_node, flow_value in remaining_flow[node].items():
                     if flow_value > 0 and next_node not in visited:
                         new_flow = min(flow, flow_value)
                         stack.append((next_node, path + [next_node], new_flow))
@@ -100,26 +111,27 @@ class NetworkXGraph:
                 break
             path, path_flow = result
             
-            path_labels = [self.g_nx[u][v].get('label', 'no_label') for u, v in zip(path[:-1], path[1:])]
+            #print("Found path:", path)
+            path_labels = []
+            for u, v in zip(path[:-1], path[1:]):
+                label = self.g_nx[u][v].get('label', 'no_label')
+                path_labels.append(label)
+                print(f"Edge {u} -> {v}: label = {label}")
             
             paths.append((path, path_labels, path_flow))
             
+            # Update remaining_flow instead of flow_dict
             for u, v in zip(path[:-1], path[1:]):
-                flow_dict[u][v] -= path_flow
-                if flow_dict[u][v] == 0:
-                    del flow_dict[u][v]
-                if v not in flow_dict:
-                    flow_dict[v] = {u: path_flow}
-                elif u not in flow_dict[v]:
-                    flow_dict[v][u] = path_flow
-                else:
-                    flow_dict[v][u] += path_flow
+                remaining_flow[u][v] -= path_flow
+                if remaining_flow[u][v] == 0:
+                    del remaining_flow[u][v]
                 
                 # Update edge_flows
                 edge_flows[(u, v)] = edge_flows.get((u, v), Decimal(0)) + path_flow
 
         return paths, edge_flows
-    
+
+
     def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], Decimal]]) -> List[Tuple[List[str], List[str], Decimal]]:
         simplified_paths = []
         for path, labels, flow in original_paths:

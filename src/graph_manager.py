@@ -13,6 +13,7 @@ class GraphManager:
         
         self.data_ingestion = DataIngestion(df_trusts, df_balances)
         self.graph = NetworkXGraph(self.data_ingestion.edges, self.data_ingestion.capacities, self.data_ingestion.tokens)
+        
         self.flow_analysis = NetworkFlowAnalysis(self.graph)
         self.visualization = Visualization()
 
