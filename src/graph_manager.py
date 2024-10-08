@@ -27,11 +27,11 @@ class GraphManager:
         self.visualization.ensure_output_directory(output_dir)
         
         # Full graph visualization
-        self.visualization.plot_full_graph(
-            self.graph.g_nx, 
-            self.data_ingestion.id_to_address, 
-            f"{output_dir}/full_graph.png"
-        )
+    #    self.visualization.plot_full_graph(
+    #        self.graph.g_nx, 
+    #        self.data_ingestion.id_to_address, 
+    #        f"{output_dir}/full_graph.png"
+    #    )
         
         # Simplified flow paths visualization
         self.visualization.plot_flow_paths(

@@ -33,7 +33,7 @@ class NetworkFlowDashboard(param.Parameterized):
     
     def __init__(self, **params):
         super().__init__(**params)
-        self.graph_manager = GraphManager('data/circles_public_V_CrcV2_TrustRelations.csv', 'data/circles_public_V_CrcncesByAccountAndToken.csv')
+        self.graph_manager = GraphManager('data/circles_public_V1_CrcV2_TrustRelations.csv', 'data/circles_public_V1_CrcncesByAccountAndToken.csv')
         self.visualization = Visualization()
         self.results = None
         self.stats_pane = pn.pane.Markdown("Results will appear here after analysis.")

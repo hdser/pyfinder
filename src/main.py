@@ -56,15 +56,24 @@ def run_mode(graph_manager: GraphManager):
                 print("Error: Invalid address format. Please ensure addresses are 42 characters long and start with '0x'.")
                 continue
 
-            try:
-                source_id = graph_manager.data_ingestion.get_id_for_address(source)
-                sink_id = graph_manager.data_ingestion.get_id_for_address(sink)
-                if source_id is None or sink_id is None:
-                    raise ValueError(f"Source address '{source}' or sink address '{sink}' not found in the graph.")
-                break
-            except ValueError as e:
-                print(f"Error: {str(e)}")
+            source_id = graph_manager.data_ingestion.get_id_for_address(source)
+            sink_id = graph_manager.data_ingestion.get_id_for_address(sink)
+
+            if source_id is None:
+                print(f"Error: Source address '{source}' not found in the graph.")
                 continue
+            if sink_id is None:
+                print(f"Error: Sink address '{sink}' not found in the graph.")
+                continue
+
+            if source_id not in graph_manager.graph.g_nx:
+                print(f"Error: Source node ID '{source_id}' not in the graph.")
+                continue
+            if sink_id not in graph_manager.graph.g_nx:
+                print(f"Error: Sink node ID '{sink_id}' not in the graph.")
+                continue
+
+            break
 
         print("\nGraph information:")
         print(f"Number of nodes in graph: {graph_manager.graph.g_nx.number_of_nodes()}")
@@ -194,8 +203,8 @@ def benchmark_mode(graph_manager: GraphManager):
 
 
 def main():
-    trusts_file = 'data/circles_public_V_CrcV2_TrustRelations.csv'
-    balances_file = 'data/circles_public_V_CrcncesByAccountAndToken.csv'
+    trusts_file = 'data/circles_public_V1_CrcV2_TrustRelations.csv'
+    balances_file = 'data/circles_public_V1_CrcncesByAccountAndToken.csv'
     graph_manager = GraphManager(trusts_file, balances_file)
 
     print("Choose a mode:")
