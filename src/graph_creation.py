@@ -2,6 +2,7 @@ import networkx as nx
 from typing import List, Tuple, Dict, Callable, Optional
 from decimal import Decimal
 import json
+import time
 
 class NetworkXGraph:
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
@@ -13,13 +14,17 @@ class NetworkXGraph:
             g.add_edge(u, v, capacity=capacity, label=token)
         return g
 
+
     def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[Decimal, Dict[str, Dict[str, Decimal]]]:
         if flow_func is None:
             flow_func = nx.algorithms.flow.preflow_push
 
         print('Started Flow Computation...')
+        #requested_flow_decimal = int(requested_flow)
+        #flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func, cutoff=requested_flow_decimal)
         flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
         print('Ended Flow Computation...')
+
        # with open('output/flow_dic.json', 'w') as f:
        #     json.dump(
        #         flow_dict, 

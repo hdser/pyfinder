@@ -51,7 +51,7 @@ class DataIngestion:
 
         # Convert balances and filter out non-positive balances
         df_filtered['balance'] = df_filtered['demurragedTotalBalance'].apply(self._convert_balance)
-        df_filtered = df_filtered[df_filtered['balance'] > 0]
+        #df_filtered = df_filtered[df_filtered['balance'] > 0]
 
         # Map addresses to IDs
         df_filtered['account_id'] = df_filtered['account'].map(self.address_to_id)

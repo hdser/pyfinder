@@ -20,8 +20,8 @@ from networkx.algorithms.flow import (
 pn.extension()
 
 class NetworkFlowDashboard(param.Parameterized):
-    source = param.String(default="0x2607f42a1b877adf9385d2b24f87261faf9fdfe9")
-    sink = param.String(default="0x73afeb464f1eb5dec32a0ac229f53a2e37e86c00")
+    source = param.String(default="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0")
+    sink = param.String(default="0xe98f0672a8e31b408124f975749905f8003a2e04")
     requested_flow = param.String(default="")
     algorithm = param.ObjectSelector(default="Default (Preflow Push)", objects=[
         "Default (Preflow Push)",
@@ -33,7 +33,7 @@ class NetworkFlowDashboard(param.Parameterized):
     
     def __init__(self, **params):
         super().__init__(**params)
-        self.graph_manager = GraphManager('data/circles_public_V1_CrcV2_TrustRelations.csv', 'data/circles_public_V1_CrcncesByAccountAndToken.csv')
+        self.graph_manager = GraphManager('data/data-trust.csv', 'data/data-balance.csv')
         self.visualization = Visualization()
         self.results = None
         self.stats_pane = pn.pane.Markdown("Results will appear here after analysis.")

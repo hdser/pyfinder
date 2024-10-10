@@ -44,7 +44,7 @@ def run_mode(graph_manager: GraphManager):
 
         algo_name, algo_func = algorithms[choice]
 
-        print(f"\nNode information:\n{graph_manager.get_node_info()}")
+        #print(f"\nNode information:\n{graph_manager.get_node_info()}")
 
         while True:
             print("\nEnter Ethereum addresses for source and sink nodes.")
@@ -74,19 +74,6 @@ def run_mode(graph_manager: GraphManager):
                 continue
 
             break
-
-        print("\nGraph information:")
-        print(f"Number of nodes in graph: {graph_manager.graph.g_nx.number_of_nodes()}")
-        print(f"Number of edges in graph: {graph_manager.graph.g_nx.number_of_edges()}")
-        print("Sample of node IDs in graph:", list(graph_manager.graph.g_nx.nodes())[:10])
-        
-        print("\nDetailed node information:")
-        for node in list(graph_manager.graph.g_nx.nodes())[:10]:
-            if '_' in node:
-                print(f"Intermediate Node ID: {node}")
-            else:
-                address = graph_manager.data_ingestion.get_address_for_id(node)
-                print(f"Node ID: {node}, Address: {address}")
 
         requested_flow = input("Enter requested flow value (press Enter for max flow): ")
         requested_flow = requested_flow if requested_flow else None
@@ -203,9 +190,13 @@ def benchmark_mode(graph_manager: GraphManager):
 
 
 def main():
-    trusts_file = 'data/circles_public_V1_CrcV2_TrustRelations.csv'
-    balances_file = 'data/circles_public_V1_CrcncesByAccountAndToken.csv'
+    trusts_file = 'data/data-trust.csv'
+    balances_file = 'data/data-balance.csv'
     graph_manager = GraphManager(trusts_file, balances_file)
+
+    print("\nGraph information:")
+    print(f"Number of nodes in graph: {graph_manager.graph.g_nx.number_of_nodes()}")
+    print(f"Number of edges in graph: {graph_manager.graph.g_nx.number_of_edges()}")
 
     print("Choose a mode:")
     print("1. Run Mode")
