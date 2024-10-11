@@ -1,6 +1,5 @@
 import networkx as nx
 from typing import List, Tuple, Dict, Callable, Optional
-from decimal import Decimal
 import json
 import time
 
@@ -15,31 +14,33 @@ class NetworkXGraph:
         return g
 
 
-    def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[Decimal, Dict[str, Dict[str, Decimal]]]:
+    def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
         if flow_func is None:
             flow_func = nx.algorithms.flow.preflow_push
 
         print('Started Flow Computation...')
-        #requested_flow_decimal = int(requested_flow)
-        #flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func, cutoff=requested_flow_decimal)
-        flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
+        try:
+            requested_flow_int = int(requested_flow)
+            flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func, cutoff=requested_flow_int)
+        except:
+            flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
+        #flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
         print('Ended Flow Computation...')
 
        # with open('output/flow_dic.json', 'w') as f:
        #     json.dump(
        #         flow_dict, 
        #         f, 
-       #         default=lambda obj: str(obj) if isinstance(obj, Decimal) else TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable"))
+       #         default=lambda obj: str(obj) if isinstance(obj, int) else TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable"))
 
         if requested_flow is not None:
-            requested_flow_decimal = Decimal(requested_flow)
-            if Decimal(flow_value) > requested_flow_decimal:
-                flow_value = requested_flow_decimal
-                flow_dict = self._limit_flow(flow_dict, source, sink, requested_flow_decimal)
+            if flow_value > requested_flow_int:
+                flow_value = requested_flow_int
+                flow_dict = self._limit_flow(flow_dict, source, sink, requested_flow_int)
 
-        return Decimal(flow_value), flow_dict
+        return flow_value, flow_dict
 
-    def _limit_flow(self, flow_dict: Dict[str, Dict[str, float]], source: str, sink: str, limit: Decimal) -> Dict[str, Dict[str, Decimal]]:
+    def _limit_flow(self, flow_dict: Dict[str, Dict[str, float]], source: str, sink: str, limit: int) -> Dict[str, Dict[str, int]]:
         limited_flow_dict = {node: {} for node in flow_dict}
         remaining_flow = limit
 
@@ -60,12 +61,13 @@ class NetworkXGraph:
                     flow_dict[v][u] += path_flow
 
                 if v not in limited_flow_dict[u]:
-                    limited_flow_dict[u][v] = Decimal(0)
-                limited_flow_dict[u][v] += Decimal(path_flow)
+                    limited_flow_dict[u][v] = int(0)
+                limited_flow_dict[u][v] += int(path_flow)
 
             remaining_flow -= path_flow
 
         return limited_flow_dict
+    
 
     def _find_path(self, flow_dict: Dict[str, Dict[str, float]], source: str, sink: str) -> List[str]:
         stack = [(source, [source])]
@@ -82,7 +84,7 @@ class NetworkXGraph:
                         stack.append((next_node, path + [next_node]))
         return []
 
-    def flow_decomposition(self, flow_dict: Dict[str, Dict[str, Decimal]], source: str, sink: str) -> Tuple[List[Tuple[List[str], List[str], Decimal]], Dict[Tuple[str, str], Decimal]]:
+    def flow_decomposition(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str) -> Tuple[List[Tuple[List[str], List[str], int]], Dict[Tuple[str, str], int]]:
         paths = []
         edge_flows = {}
         
@@ -90,7 +92,8 @@ class NetworkXGraph:
         remaining_flow = {u: {v: flow for v, flow in flows.items()} for u, flows in flow_dict.items()}
         
         def find_path_iterative(source, sink):
-            stack = [(source, [source], Decimal('Infinity'))]
+            infinity = 10**38
+            stack = [(source, [source], infinity)]
             visited = set()
 
             while stack:
@@ -132,12 +135,12 @@ class NetworkXGraph:
                     del remaining_flow[u][v]
                 
                 # Update edge_flows
-                edge_flows[(u, v)] = edge_flows.get((u, v), Decimal(0)) + path_flow
+                edge_flows[(u, v)] = edge_flows.get((u, v), int(0)) + path_flow
 
         return paths, edge_flows
 
 
-    def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], Decimal]]) -> List[Tuple[List[str], List[str], Decimal]]:
+    def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
         simplified_paths = []
         for path, labels, flow in original_paths:
             simplified_path = []

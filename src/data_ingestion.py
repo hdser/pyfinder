@@ -1,5 +1,4 @@
 import pandas as pd
-from decimal import Decimal
 from typing import List, Tuple, Dict
 
 class DataIngestion:
@@ -28,7 +27,7 @@ class DataIngestion:
         
         return address_to_id, id_to_address
 
-    def _create_edge_data(self) -> Tuple[List[Tuple[str, str]], List[Decimal], List[str]]:
+    def _create_edge_data(self) -> Tuple[List[Tuple[str, str]], List[int], List[str]]:
         # Create a mapping from truster to their unique trustees (including themselves)
         truster_to_trustees = self.df_trusts.groupby('truster')['trustee'].apply(list).to_dict()
         for truster in self.df_trusts['truster'].unique():
@@ -70,8 +69,8 @@ class DataIngestion:
         return edges, capacities, tokens
 
     @staticmethod
-    def _convert_balance(balance_str: str) -> Decimal:
-        return Decimal(balance_str)
+    def _convert_balance(balance_str: str) -> int:
+        return int(int(balance_str)/10**14)
 
     def get_id_for_address(self, address: str) -> str:
         return self.address_to_id.get(address.lower())

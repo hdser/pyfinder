@@ -12,7 +12,6 @@ import os
 from typing import List, Tuple, Callable, Optional
 import pandas as pd
 import random
-from decimal import Decimal
 
 def get_node_info(graph: nx.DiGraph):
     nodes = list(graph.nodes())
@@ -80,7 +79,7 @@ def run_mode(graph_manager: GraphManager):
 
         try:
             start_time = time.time()
-            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows, aggregated_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
+            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
             end_time = time.time()
 
             print(f"\nAlgorithm: {algo_name}")
@@ -88,23 +87,36 @@ def run_mode(graph_manager: GraphManager):
             print(f"Flow from {source} to {sink}: {flow_value}")
             if requested_flow is not None:
                 print(f"Requested flow: {requested_flow}")
-                if Decimal(flow_value) < Decimal(requested_flow):
+                if int(flow_value) < int(requested_flow):
                     print("Note: Achieved flow is less than requested flow.")
 
-            print("\nAggregated Transfers:")
-            for (u, v, token), flow in aggregated_flows.items():
-                u_address = graph_manager.data_ingestion.get_address_for_id(u)
-                v_address = graph_manager.data_ingestion.get_address_for_id(v)
-                token_address = graph_manager.data_ingestion.get_address_for_id(token)
-                print(f"{u_address} --> {v_address} (Flow: {flow}, Token: {token_address})")
+            print("\nSimplified Transfers:")
+            if isinstance(simplified_edge_flows, dict):
+                for (u, v), token_flows in simplified_edge_flows.items():
+                    u_address = graph_manager.data_ingestion.get_address_for_id(u)
+                    v_address = graph_manager.data_ingestion.get_address_for_id(v)
+                    for token, flow in token_flows.items():
+                        token_address = graph_manager.data_ingestion.get_address_for_id(token)
+                        print(f"{u_address} --> {v_address} (Flow: {flow}, Token: {token_address})")
+            else:
+                print("Unexpected structure of simplified_edge_flows. Unable to display transfers.")
 
             output_dir = 'output'
             graph_manager.visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)
             print(f"\nVisualization saved in the '{output_dir}' directory.")
         except nx.NetworkXError as e:
-            print(f"Error occurred: {str(e)}")
+            print(f"NetworkX error occurred: {str(e)}")
+        except ValueError as e:
+            print(f"Value error occurred: {str(e)}")
+            print("This might be due to incorrect data types or unexpected data structure.")
+        except KeyError as e:
+            print(f"Key error occurred: {str(e)}")
+            print("This might be due to missing keys in the data structure.")
         except Exception as e:
             print(f"An unexpected error occurred: {str(e)}")
+            print("Error details:")
+            import traceback
+            traceback.print_exc()
 
 def benchmark_mode(graph_manager: GraphManager):
     algorithms = [
@@ -157,7 +169,7 @@ def benchmark_mode(graph_manager: GraphManager):
             try:
                 start_time = time.time()
                 # Pass Ethereum addresses to analyze_flow
-                flow_value, _, _, _, aggregated_flows = graph_manager.analyze_flow(source_address, sink_address, algo_func, requested_flow)
+                flow_value, simplified_paths, _, _ = graph_manager.analyze_flow(source_address, sink_address, algo_func, requested_flow)
                 end_time = time.time()
                 execution_time = end_time - start_time
 
@@ -168,7 +180,7 @@ def benchmark_mode(graph_manager: GraphManager):
                     'Flow Value': str(flow_value),
                     'Requested Flow': requested_flow if requested_flow is not None else 'Max',
                     'Execution Time': execution_time,
-                    'Num Aggregated Transfers': len(aggregated_flows)
+                    'Num Transfers': len(simplified_paths)
                 })
             except nx.NetworkXError as e:
                 print(f"Error occurred for {algo_name} with source {source_address} and sink {sink_address}: {str(e)}")

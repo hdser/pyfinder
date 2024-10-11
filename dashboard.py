@@ -8,7 +8,6 @@ from collections import defaultdict
 import io
 from src.graph_manager import GraphManager
 from src.visualization import Visualization
-from decimal import Decimal
 from networkx.algorithms.flow import (
     edmonds_karp,
     preflow_push,
@@ -80,7 +79,7 @@ class NetworkFlowDashboard(param.Parameterized):
             self.transactions_box.visible = False
             return
 
-        flow_value, simplified_paths, simplified_edge_flows, original_edge_flows, aggregated_flows = self.results
+        flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = self.results
 
         stats = f"""
         # Results
@@ -89,15 +88,19 @@ class NetworkFlowDashboard(param.Parameterized):
         - Achieved Flow Value: {flow_value}
         - Number of Simplified Paths: {len(simplified_paths)}
         - Number of Original Edges: {len(original_edge_flows)}
-        - Number of Aggregated Transfers: {len(aggregated_flows)}
+        - Number of Simplified Transfers: {sum(len(flows) for flows in simplified_edge_flows.values())}
         """
 
         self.stats_pane.object = stats
         
-        # Format aggregated transactions
-        transactions = ""
-        for (u, v, token), flow in aggregated_flows.items():
-            transactions += f"<li>{u} --> {v} (Flow: {flow}, Token: {token})</li>"
+        # Format simplified transactions
+        transactions = "<ul>"
+        for (u, v), token_flows in simplified_edge_flows.items():
+            u_address = self.graph_manager.data_ingestion.get_address_for_id(u)
+            v_address = self.graph_manager.data_ingestion.get_address_for_id(v)
+            for token, flow in token_flows.items():
+                token_address = self.graph_manager.data_ingestion.get_address_for_id(token)
+                transactions += f"<li>{u_address[:6]}...{u_address[-4:]} --> {v_address[:6]}...{v_address[-4:]} (Flow: {flow}, Token: {token_address[:6]}...{token_address[-4:]})</li>"
         transactions += "</ul>"
         
         self.transactions_box[-1].object = f"""
@@ -108,7 +111,7 @@ class NetworkFlowDashboard(param.Parameterized):
         self.transactions_box.visible = True
         
         self.full_graph_pane.object = self.create_path_graph(self.graph_manager.graph.g_nx, original_edge_flows, "Full Graph")
-        self.simplified_graph_pane.object = self.create_aggregated_graph(aggregated_flows, "Aggregated Transfers Graph")
+        self.simplified_graph_pane.object = self.create_aggregated_graph(simplified_edge_flows, "Simplified Transfers Graph")
 
     def create_path_graph(self, G, edge_flows, title):
         plt.figure(figsize=(10, 7))
@@ -155,14 +158,15 @@ class NetworkFlowDashboard(param.Parameterized):
         
         return buf
 
-    def create_aggregated_graph(self, aggregated_flows, title):
+    def create_aggregated_graph(self, simplified_edge_flows, title):
         plt.figure(figsize=(10, 7))
         ax = plt.gca()
         
-        # Create a graph with aggregated flows
+        # Create a graph with simplified flows
         G = nx.MultiDiGraph()
-        for (u, v, token), flow in aggregated_flows.items():
-            G.add_edge(u, v, flow=flow, token=token)
+        for (u, v), token_flows in simplified_edge_flows.items():
+            for token, flow in token_flows.items():
+                G.add_edge(u, v, flow=flow, token=token)
 
         # Identify source and sink
         source = next(node for node in G.nodes() if G.in_degree(node) == 0)
@@ -185,7 +189,7 @@ class NetworkFlowDashboard(param.Parameterized):
         for (u, v), keys in edges_between_nodes.items():
             num_edges = len(keys)
             if num_edges == 1:
-                rad_list = [0.0]  # No curvature needed for a single edge
+                rad_list = [0.0] 
             else:
                 # Assign curvature values ranging from -0.5 to 0.5
                 rad_list = np.linspace(-0.5, 0.5, num_edges)
@@ -206,7 +210,7 @@ class NetworkFlowDashboard(param.Parameterized):
                     mutation_scale=20,
                     color='gray',
                     linewidth=1,
-                    zorder=1  # Ensure edges are drawn below nodes
+                    zorder=1 
                 )
                 ax.add_patch(arrow)
 

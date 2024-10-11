@@ -145,19 +145,8 @@ class Visualization:
             return
 
         flow_graph = nx.MultiDiGraph()
-        aggregated_flows = defaultdict(lambda: defaultdict(float))
 
-        for path, _, _ in paths:
-            for i in range(len(path) - 1):
-                u, v = path[i], path[i + 1]
-                edge_key = (u, v)
-                if edge_key in edge_flows:
-                    for flow_data in edge_flows[edge_key]:
-                        token = flow_data.get('token', 'Unknown')
-                        flow = float(flow_data.get('flow', 0))
-                        aggregated_flows[edge_key][token] += flow
-
-        for (u, v), token_flows in aggregated_flows.items():
+        for (u, v), token_flows in edge_flows.items():
             for token, flow in token_flows.items():
                 flow_graph.add_edge(u, v, flow=flow, token=token)
 
