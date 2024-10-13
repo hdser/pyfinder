@@ -1,5 +1,6 @@
 import pandas as pd
 from typing import Callable, Optional
+import networkx as nx
 from .data_ingestion import DataIngestion
 from .graph_creation import NetworkXGraph
 from .flow_analysis import NetworkFlowAnalysis
@@ -20,9 +21,15 @@ class GraphManager:
     def analyze_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, cutoff: Optional[float] = None):
         source_id = self.data_ingestion.get_id_for_address(source)
         sink_id = self.data_ingestion.get_id_for_address(sink)
+        
         if source_id is None or sink_id is None:
             raise ValueError(f"Source address '{source}' or sink address '{sink}' not found in the graph.")
+        
+        if source_id not in self.graph.g_nx or sink_id not in self.graph.g_nx:
+            raise nx.NetworkXError(f"Source node '{source_id}' or sink node '{sink_id}' not in graph.")
+        
         return self.flow_analysis.analyze_flow(source_id, sink_id, flow_func, cutoff)
+
 
     def visualize_flow(self, simplified_paths, simplified_edge_flows, original_edge_flows, output_dir: str):
         self.visualization.ensure_output_directory(output_dir)

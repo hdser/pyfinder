@@ -90,6 +90,7 @@ def run_mode(graph_manager: GraphManager):
                 if int(flow_value) < int(requested_flow):
                     print("Note: Achieved flow is less than requested flow.")
 
+            """
             print("\nSimplified Transfers:")
             if isinstance(simplified_edge_flows, dict):
                 for (u, v), token_flows in simplified_edge_flows.items():
@@ -100,7 +101,7 @@ def run_mode(graph_manager: GraphManager):
                         print(f"{u_address} --> {v_address} (Flow: {flow}, Token: {token_address})")
             else:
                 print("Unexpected structure of simplified_edge_flows. Unable to display transfers.")
-
+            """
             output_dir = 'output'
             graph_manager.visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)
             print(f"\nVisualization saved in the '{output_dir}' directory.")

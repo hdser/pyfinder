@@ -124,7 +124,7 @@ class NetworkXGraph:
             for u, v in zip(path[:-1], path[1:]):
                 label = self.g_nx[u][v].get('label', 'no_label')
                 path_labels.append(label)
-                print(f"Edge {u} -> {v}: label = {label}")
+                #print(f"Edge {u} -> {v}: label = {label}")
             
             paths.append((path, path_labels, path_flow))
             
