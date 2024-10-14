@@ -1,4 +1,5 @@
 from src.graph_manager import GraphManager
+from src.graph_creation import NetworkXGraph, GraphToolGraph
 import networkx as nx
 from networkx.algorithms.flow import (
     edmonds_karp, 
@@ -7,29 +8,32 @@ from networkx.algorithms.flow import (
     boykov_kolmogorov,
     dinitz,
 )
+from graph_tool.flow import edmonds_karp_max_flow as gt_edmonds_karp, push_relabel_max_flow as gt_push_relabel, boykov_kolmogorov_max_flow as gt_boykov_kolmogorov
 import time
 import os
 from typing import List, Tuple, Callable, Optional
 import pandas as pd
 import random
+import signal
 
-def get_node_info(graph: nx.DiGraph):
-    nodes = list(graph.nodes())
-    return f"Total nodes: {len(nodes)}\nSample nodes: {random.sample(nodes, min(5, len(nodes)))}"
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("Flow computation timed out")
 
 def run_mode(graph_manager: GraphManager):
     algorithms = {
-        '1': ('Default (Preflow Push)', preflow_push),
-        '2': ('Edmonds-Karp', edmonds_karp),
-        '3': ('Shortest Augmenting Path', shortest_augmenting_path),
-        '4': ('Boykov-Kolmogorov', boykov_kolmogorov),
-        '5': ('Dinitz', dinitz),
+        '1': ('Default (Preflow Push)', preflow_push if isinstance(graph_manager.graph, NetworkXGraph) else gt_push_relabel),
+        '2': ('Edmonds-Karp', edmonds_karp if isinstance(graph_manager.graph, NetworkXGraph) else gt_edmonds_karp),
+        '3': ('Shortest Augmenting Path', shortest_augmenting_path if isinstance(graph_manager.graph, NetworkXGraph) else None),
+        '4': ('Boykov-Kolmogorov', boykov_kolmogorov if isinstance(graph_manager.graph, NetworkXGraph) else gt_boykov_kolmogorov),
+        '5': ('Dinitz', dinitz if isinstance(graph_manager.graph, NetworkXGraph) else None),
     }
 
     while True:
         print("\nChoose an algorithm:")
-        for key, (name, _) in algorithms.items():
-            print(f"{key}. {name}")
+        for key, (name, func) in algorithms.items():
+            if func is not None:
+                print(f"{key}. {name}")
         print("q. Quit")
 
         choice = input("Enter your choice: ")
@@ -37,13 +41,11 @@ def run_mode(graph_manager: GraphManager):
         if choice.lower() == 'q':
             break
 
-        if choice not in algorithms:
+        if choice not in algorithms or algorithms[choice][1] is None:
             print("Invalid choice. Please try again.")
             continue
 
         algo_name, algo_func = algorithms[choice]
-
-        #print(f"\nNode information:\n{graph_manager.get_node_info()}")
 
         while True:
             print("\nEnter Ethereum addresses for source and sink nodes.")
@@ -55,32 +57,20 @@ def run_mode(graph_manager: GraphManager):
                 print("Error: Invalid address format. Please ensure addresses are 42 characters long and start with '0x'.")
                 continue
 
-            source_id = graph_manager.data_ingestion.get_id_for_address(source)
-            sink_id = graph_manager.data_ingestion.get_id_for_address(sink)
-
-            if source_id is None:
-                print(f"Error: Source address '{source}' not found in the graph.")
-                continue
-            if sink_id is None:
-                print(f"Error: Sink address '{sink}' not found in the graph.")
-                continue
-
-            if source_id not in graph_manager.graph.g_nx:
-                print(f"Error: Source node ID '{source_id}' not in the graph.")
-                continue
-            if sink_id not in graph_manager.graph.g_nx:
-                print(f"Error: Sink node ID '{sink_id}' not in the graph.")
-                continue
-
             break
 
         requested_flow = input("Enter requested flow value (press Enter for max flow): ")
         requested_flow = requested_flow if requested_flow else None
 
         try:
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(300)  # Set timeout to 5 minutes
+
             start_time = time.time()
             flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
             end_time = time.time()
+
+            signal.alarm(0)  # Cancel the alarm
 
             print(f"\nAlgorithm: {algo_name}")
             print(f"Execution time: {end_time - start_time:.4f} seconds")
@@ -90,52 +80,33 @@ def run_mode(graph_manager: GraphManager):
                 if int(flow_value) < int(requested_flow):
                     print("Note: Achieved flow is less than requested flow.")
 
-            """
-            print("\nSimplified Transfers:")
-            if isinstance(simplified_edge_flows, dict):
-                for (u, v), token_flows in simplified_edge_flows.items():
-                    u_address = graph_manager.data_ingestion.get_address_for_id(u)
-                    v_address = graph_manager.data_ingestion.get_address_for_id(v)
-                    for token, flow in token_flows.items():
-                        token_address = graph_manager.data_ingestion.get_address_for_id(token)
-                        print(f"{u_address} --> {v_address} (Flow: {flow}, Token: {token_address})")
-            else:
-                print("Unexpected structure of simplified_edge_flows. Unable to display transfers.")
-            """
             output_dir = 'output'
             graph_manager.visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)
             print(f"\nVisualization saved in the '{output_dir}' directory.")
-        except nx.NetworkXError as e:
-            print(f"NetworkX error occurred: {str(e)}")
-        except ValueError as e:
-            print(f"Value error occurred: {str(e)}")
-            print("This might be due to incorrect data types or unexpected data structure.")
-        except KeyError as e:
-            print(f"Key error occurred: {str(e)}")
-            print("This might be due to missing keys in the data structure.")
+        except TimeoutError:
+            print("Flow computation timed out after 5 minutes.")
         except Exception as e:
-            print(f"An unexpected error occurred: {str(e)}")
+            print(f"An error occurred: {str(e)}")
             print("Error details:")
             import traceback
             traceback.print_exc()
 
 def benchmark_mode(graph_manager: GraphManager):
     algorithms = [
-        ('Default (Preflow Push)', preflow_push),
-        ('Edmonds-Karp', edmonds_karp),
-        ('Shortest Augmenting Path', shortest_augmenting_path),
-        ('Boykov-Kolmogorov', boykov_kolmogorov),
-        ('Dinitz', dinitz),
+        ('Default (Preflow Push)', preflow_push if isinstance(graph_manager.graph, nx.DiGraph) else gt_push_relabel),
+        ('Edmonds-Karp', edmonds_karp if isinstance(graph_manager.graph, nx.DiGraph) else gt_edmonds_karp),
+        ('Shortest Augmenting Path', shortest_augmenting_path if isinstance(graph_manager.graph, nx.DiGraph) else None),
+        ('Boykov-Kolmogorov', boykov_kolmogorov if isinstance(graph_manager.graph, nx.DiGraph) else gt_boykov_kolmogorov),
+        ('Dinitz', dinitz if isinstance(graph_manager.graph, nx.DiGraph) else None),
     ]
 
     results = []
 
-    print(f"\nNode information:\n{get_node_info(graph_manager.graph.g_nx)}")
+    print(f"\nNode information:\n{get_node_info(graph_manager.graph)}")
 
     requested_flow = input("Enter requested flow value for all pairs (press Enter for max flow): ")
     requested_flow = requested_flow if requested_flow else None
 
-    # Ask the user for the number of random source-sink pairs
     num_pairs_input = input("Enter the number of random source-sink pairs to test: ")
     try:
         num_pairs = int(num_pairs_input)
@@ -143,10 +114,8 @@ def benchmark_mode(graph_manager: GraphManager):
         print("Invalid number entered. Defaulting to 5 pairs.")
         num_pairs = 5
 
-    # Get list of nodes (excluding intermediate nodes)
-    nodes = [node for node in graph_manager.graph.g_nx.nodes() if '_' not in node]
+    nodes = [node for node in graph_manager.graph.nodes() if '_' not in str(node)]
 
-    # Generate random source-sink pairs
     source_sink_pairs = []
     while len(source_sink_pairs) < num_pairs:
         source_id = random.choice(nodes)
@@ -155,6 +124,8 @@ def benchmark_mode(graph_manager: GraphManager):
             source_sink_pairs.append((source_id, sink_id))
 
     for algo_name, algo_func in algorithms:
+        if algo_func is None:
+            continue
         for source_id, sink_id in source_sink_pairs:
             try:
                 source_address = graph_manager.data_ingestion.get_address_for_id(source_id)
@@ -163,13 +134,17 @@ def benchmark_mode(graph_manager: GraphManager):
                 print(f"Skipping pair ({source_id}, {sink_id}): One or both IDs not found in mapping.")
                 continue
 
-            if source_id not in graph_manager.graph.g_nx or sink_id not in graph_manager.graph.g_nx:
-                print(f"Skipping pair ({source_id}, {sink_id}): One or both nodes not in graph.")
-                continue
+            if isinstance(graph_manager.graph, nx.DiGraph):
+                if source_id not in graph_manager.graph or sink_id not in graph_manager.graph:
+                    print(f"Skipping pair ({source_id}, {sink_id}): One or both nodes not in graph.")
+                    continue
+            else:  # GraphToolGraph
+                if source_id not in graph_manager.graph.vertex_properties["id"].a or sink_id not in graph_manager.graph.vertex_properties["id"].a:
+                    print(f"Skipping pair ({source_id}, {sink_id}): One or both nodes not in graph.")
+                    continue
 
             try:
                 start_time = time.time()
-                # Pass Ethereum addresses to analyze_flow
                 flow_value, simplified_paths, _, _ = graph_manager.analyze_flow(source_address, sink_address, algo_func, requested_flow)
                 end_time = time.time()
                 execution_time = end_time - start_time
@@ -183,10 +158,8 @@ def benchmark_mode(graph_manager: GraphManager):
                     'Execution Time': execution_time,
                     'Num Transfers': len(simplified_paths)
                 })
-            except nx.NetworkXError as e:
-                print(f"Error occurred for {algo_name} with source {source_address} and sink {sink_address}: {str(e)}")
             except Exception as e:
-                print(f"An unexpected error occurred for {algo_name} with source {source_address} and sink {sink_address}: {str(e)}")
+                print(f"An error occurred for {algo_name} with source {source_address} and sink {sink_address}: {str(e)}")
 
     if results:
         df_results = pd.DataFrame(results)
@@ -201,15 +174,25 @@ def benchmark_mode(graph_manager: GraphManager):
     else:
         print("No valid results to display. Please check your source-sink pairs and graph structure.")
 
-
 def main():
     trusts_file = 'data/data-trust.csv'
     balances_file = 'data/data-balance.csv'
-    graph_manager = GraphManager(trusts_file, balances_file)
+    
+    print("Choose graph type:")
+    print("1. NetworkX")
+    print("2. graph-tool")
+    graph_type_choice = input("Enter your choice (1 or 2): ")
+    
+    graph_type = 'networkx' if graph_type_choice == '1' else 'graph_tool'
+    graph_manager = GraphManager(trusts_file, balances_file, graph_type)
 
     print("\nGraph information:")
-    print(f"Number of nodes in graph: {graph_manager.graph.g_nx.number_of_nodes()}")
-    print(f"Number of edges in graph: {graph_manager.graph.g_nx.number_of_edges()}")
+    if isinstance(graph_manager.graph, NetworkXGraph):
+        print(f"Number of nodes in graph: {graph_manager.graph.g_nx.number_of_nodes()}")
+        print(f"Number of edges in graph: {graph_manager.graph.g_nx.number_of_edges()}")
+    else:  # GraphToolGraph
+        print(f"Number of nodes in graph: {graph_manager.graph.g_gt.num_vertices()}")
+        print(f"Number of edges in graph: {graph_manager.graph.g_gt.num_edges()}")
 
     print("Choose a mode:")
     print("1. Run Mode")

@@ -1,21 +1,31 @@
 import networkx as nx
 from typing import List, Tuple, Dict, Callable, Optional
-from .graph_creation import NetworkXGraph
+from .graph_creation import NetworkXGraph, GraphToolGraph
 
 class NetworkFlowAnalysis:
-    def __init__(self, graph: NetworkXGraph):
+    def __init__(self, graph: NetworkXGraph | GraphToolGraph):
         self.graph = graph
 
     def analyze_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None):
         flow_value, flow_dict = self.graph.compute_flow(source, sink, flow_func, requested_flow)
-        paths, edge_flows = self.graph.flow_decomposition(flow_dict, source, sink)
+        paths, edge_flows = self.graph.flow_decomposition(flow_dict, source, sink, int(requested_flow) if requested_flow else None)
         
-        simplified_graph, simplified_edge_flows = self.simplify_graph(self.graph.g_nx, edge_flows)
         simplified_paths = self.graph.simplified_flow_decomposition(paths)
-        
+        simplified_edge_flows = self.simplify_edge_flows(edge_flows)
         
         return flow_value, simplified_paths, simplified_edge_flows, edge_flows
 
+    
+    def simplify_edge_flows(self, edge_flows: Dict[Tuple[str, str], float]) -> Dict[Tuple[str, str], Dict[str, float]]:
+        simplified_edge_flows = {}
+        for (u, v), flow in edge_flows.items():
+            if '_' in u and '_' not in v:
+                real_u, token = u.split('_')
+                if (real_u, v) not in simplified_edge_flows:
+                    simplified_edge_flows[(real_u, v)] = {}
+                simplified_edge_flows[(real_u, v)][token] = simplified_edge_flows[(real_u, v)].get(token, 0) + flow
+        return simplified_edge_flows
+    
     def simplify_graph(self, graph: nx.DiGraph, edge_flows: Dict[Tuple[str, str], float]) -> Tuple[nx.MultiDiGraph, Dict[Tuple[str, str], Dict[str, float]]]:
         simplified_graph = nx.MultiDiGraph()
         simplified_edge_flows = {}
