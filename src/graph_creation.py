@@ -247,7 +247,7 @@ class GraphToolGraph(BaseGraph):
     def get_vertex(self, vertex_id: str):
         return self.id_to_vertex.get(vertex_id)
     
-    def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[float, Dict[str, Dict[str, float]]]:
+    def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
         s = self.get_vertex(source)
         t = self.get_vertex(sink)
 
@@ -269,24 +269,24 @@ class GraphToolGraph(BaseGraph):
         res = flow_func(self.g_gt, s, t, self.capacity)
 
         flow = self.capacity.copy()
-        flow.a -= res.a  # Compute the actual flow
+        flow.a = self.capacity.a - res.a  # Compute the actual flow
 
-        flow_value = sum(flow[e] for e in t.in_edges())
+        flow_value = int(sum(flow[e] for e in t.in_edges()))  # Ensure integer flow value
         print(f"Total flow value: {flow_value}")
 
         if requested_flow is not None:
-            max_flow = float(requested_flow)
+            max_flow = int(requested_flow)
             if flow_value > max_flow:
                 flow_value = max_flow
                 print(f"Adjusted flow to requested value: {flow_value}")
 
         # Store the residual graph for later use in flow_decomposition
-        #self.residual_capacity = res
+        self.residual_capacity = res
 
-        # Create flow_dict
-        flow_dict = defaultdict(lambda: defaultdict(float))
+        # Create flow_dict with integer flows
+        flow_dict = defaultdict(lambda: defaultdict(int))
         for e in self.g_gt.edges():
-            f = flow[e]
+            f = int(flow[e])
             if f > 0:
                 u = self.vertex_id[e.source()]
                 v = self.vertex_id[e.target()]
@@ -294,209 +294,118 @@ class GraphToolGraph(BaseGraph):
 
         return flow_value, dict(flow_dict)
 
-    def flow_decomposition2(self, flow_dict: Dict[str, Dict[str, float]], source: str, sink: str, requested_flow: Optional[float] = None) -> Tuple[List[Tuple[List[str], List[str], float]], Dict[Tuple[str, str], float]]:
+
+    def flow_decomposition(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str, requested_flow: Optional[int] = None, method: str = 'bfs') -> Tuple[List[Tuple[List[str], List[str], int]], Dict[Tuple[str, str], int]]:
+        """
+        Decompose the flow into paths using either BFS or DFS.
+
+        Parameters:
+        - flow_dict: The flow dictionary obtained from compute_flow.
+        - source: The source vertex ID.
+        - sink: The sink vertex ID.
+        - requested_flow: The amount of flow to decompose.
+        - method: 'bfs' or 'dfs' to choose the path-finding method.
+
+        Returns:
+        - A tuple containing the list of paths and the edge flows.
+        """
         s = self.get_vertex(source)
         t = self.get_vertex(sink)
 
         if s is None or t is None:
             raise ValueError(f"Source node '{source}' or sink node '{sink}' not in graph.")
 
-        if not hasattr(self, 'residual_capacity'):
-            raise ValueError("Flow has not been computed. Call compute_flow before flow_decomposition.")
-
         total_flow = sum(flow_dict[source].values())
         if requested_flow is None or requested_flow > total_flow:
             requested_flow = total_flow
 
-        paths = []
-        edge_flows = defaultdict(float)
-        current_flow = 0
-
-        while current_flow < requested_flow:
-            path, path_flow = self._find_path(s, t)
-            if not path:
-                break
-
-            path_flow = min(path_flow, requested_flow - current_flow)
-            
-            path_vertices = [self.vertex_id[v] for v in path]
-            path_labels = []
-            for u, v in zip(path[:-1], path[1:]):
-                e = find_edge(self.g_gt, u, v)[0]
-                path_labels.append(self.token[e])
-                self.residual_capacity[e] -= path_flow
-                edge_flows[(self.vertex_id[u], self.vertex_id[v])] += path_flow
-
-            paths.append((path_vertices, path_labels, path_flow))
-            current_flow += path_flow
-
-        return paths, dict(edge_flows)
-
-    def _find_path(self, source, sink):
-        visitor = PathVisitor(self.residual_capacity, sink)
-        try:
-            dfs_search(self.g_gt, source, visitor)
-        except StopIteration:
-            if visitor.found:
-                path = visitor.path
-                path_flow = float('inf')
-                for u, v in zip(path[:-1], path[1:]):
-                    e = find_edge(self.g_gt, u, v)[0]
-                    path_flow = min(path_flow, self.residual_capacity[e])
-                return path, path_flow
-        except ValueError:
-            # This exception is raised when we encounter an edge with zero residual capacity
-            # We'll just continue the search
-            pass
-        return [], 0
-
-    def flow_decomposition(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str, requested_flow: Optional[int] = None, method: str = 'dfs') -> Tuple[List[Tuple[List[str], List[str], int]], Dict[Tuple[str, str], int]]:
         paths = []
         edge_flows = defaultdict(int)
-        
-        total_flow = sum(flow_dict[source].values())
-        if requested_flow is None or requested_flow > total_flow:
-            requested_flow = total_flow
-
-        remaining_flow = {u: {v: flow for v, flow in sorted(flows.items())} for u, flows in sorted(flow_dict.items())}
         current_flow = 0
-        """
-        # Handle all direct edges first
-        direct_edges = []
-        for node, flows in remaining_flow.items():
-            if sink in flows:
-                direct_edges.append((node, sink, flows[sink]))
 
-        # Sort direct edges by capacity (descending) and then by node IDs for determinism
-        direct_edges.sort(key=lambda x: (-x[2], x[0], x[1]))
+        # First, process direct edge from source to sink if any
+        if sink in flow_dict.get(source, {}):
+            direct_flow = flow_dict[source][sink]
+            path = [source, sink]
+            e = self.g_gt.edge(self.get_vertex(source), self.get_vertex(sink))
+            path_labels = [self.token[e]]
+            paths.append((path, path_labels, direct_flow))
+            edge_flows[(source, sink)] += direct_flow
+            # Update flow_dict
+            del flow_dict[source][sink]
+            if not flow_dict[source]:
+                del flow_dict[source]
+            current_flow += direct_flow
 
-        for start, end, flow in direct_edges:
-            flow_to_use = min(flow, requested_flow - current_flow)
-            if flow_to_use <= 0:
-                break
-            paths.append(([start, end], [self.token[self.g_gt.edge(self.get_vertex(start), self.get_vertex(end))]], flow_to_use))
-            edge_flows[(start, end)] += flow_to_use
-            remaining_flow[start][end] -= flow_to_use
-            if remaining_flow[start][end] == 0:
-                del remaining_flow[start][end]
-            current_flow += flow_to_use
-            if current_flow >= requested_flow:
-                return paths, dict(edge_flows)
-        """
+        # Build residual flow graph
+        residual_flow = {u: dict(v) for u, v in flow_dict.items()}
+
         while current_flow < requested_flow:
             if method == 'bfs':
-                path, path_flow = self._find_path_bfs(remaining_flow, source, sink)
+                path, path_flow = self._find_flow_path_bfs(residual_flow, source, sink)
             elif method == 'dfs':
-                path, path_flow = self._find_path_dfs(remaining_flow, source, sink)
+                path, path_flow = self._find_flow_path_dfs(residual_flow, source, sink)
             else:
-                raise ValueError("Method must be either 'bfs' or 'dfs'")
+                raise ValueError("Invalid method specified. Choose 'bfs' or 'dfs'.")
 
             if not path:
                 break
-
             path_flow = min(path_flow, requested_flow - current_flow)
-
             path_labels = []
             for u, v in zip(path[:-1], path[1:]):
                 e = self.g_gt.edge(self.get_vertex(u), self.get_vertex(v))
                 path_labels.append(self.token[e])
-                remaining_flow[u][v] -= path_flow
-                if remaining_flow[u][v] == 0:
-                    del remaining_flow[u][v]
+                # Update residual_flow
+                residual_flow[u][v] -= path_flow
+                if residual_flow[u][v] == 0:
+                    del residual_flow[u][v]
+                if not residual_flow[u]:
+                    del residual_flow[u]
                 edge_flows[(u, v)] += path_flow
-
             paths.append((path, path_labels, path_flow))
             current_flow += path_flow
 
         return paths, dict(edge_flows)
 
-    def _find_path_bfs(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str) -> Tuple[List[str], int]:
+    def _find_flow_path_bfs(self, residual_flow: Dict[str, Dict[str, int]], source: str, sink: str) -> Tuple[List[str], int]:
+        """
+        Find a path using BFS in the residual flow graph.
+
+        Returns:
+        - A tuple containing the path and the minimum flow on that path.
+        """
         queue = deque([(source, [source], float('inf'))])
         visited = set()
-
         while queue:
             node, path, flow = queue.popleft()
             if node == sink:
-                return path, int(flow)
-            
-            if node not in visited:
-                visited.add(node)
-                for next_node in sorted(flow_dict.get(node, {})):
-                    edge_flow = flow_dict[node][next_node]
-                    if edge_flow > 0 and next_node not in visited:
-                        new_flow = min(flow, edge_flow)
-                        new_path = path + [next_node]
-                        queue.append((next_node, new_path, new_flow))
+                return path, flow
+            visited.add(node)
+            for next_node, edge_flow in residual_flow.get(node, {}).items():
+                if edge_flow > 0 and next_node not in visited:
+                    new_flow = min(flow, edge_flow)
+                    queue.append((next_node, path + [next_node], new_flow))
         return [], 0
 
-    def _find_path_dfs(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str) -> Tuple[List[str], int]:
+    def _find_flow_path_dfs(self, residual_flow: Dict[str, Dict[str, int]], source: str, sink: str) -> Tuple[List[str], int]:
+        """
+        Find a path using DFS in the residual flow graph.
+
+        Returns:
+        - A tuple containing the path and the minimum flow on that path.
+        """
         stack = [(source, [source], float('inf'))]
         visited = set()
-
         while stack:
             node, path, flow = stack.pop()
             if node == sink:
-                return path, int(flow)
-            
+                return path, flow
             if node not in visited:
                 visited.add(node)
-                for next_node in sorted(flow_dict.get(node, {}), reverse=True):
-                    edge_flow = flow_dict[node][next_node]
-                    if edge_flow > 0 and next_node not in visited:
-                        new_flow = min(flow, edge_flow)
-                        new_path = path + [next_node]
-                        stack.append((next_node, new_path, new_flow))
-        return [], 0
-    
-    def flow_decomposition2(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str, requested_flow: Optional[int] = None) -> Tuple[List[Tuple[List[str], List[str], int]], Dict[Tuple[str, str], int]]:
-        paths = []
-        edge_flows = defaultdict(int)
-        remaining_flow = {u: {v: flow for v, flow in flows.items()} for u, flows in flow_dict.items()}
-        total_flow = sum(flow_dict[source].values())
-        current_flow = 0
-
-        if requested_flow is None:
-            requested_flow = total_flow
-
-        while current_flow < requested_flow:
-            path, path_flow = self._find_path(remaining_flow, source, sink)
-            if not path:
-                break
-
-            # Adjust path_flow if it would exceed the requested flow
-            path_flow = min(path_flow, requested_flow - current_flow)
-
-            path_labels = []
-            for u, v in zip(path[:-1], path[1:]):
-                e = self.g_gt.edge(self.get_vertex(u), self.get_vertex(v))
-                path_labels.append(self.token[e])
-                remaining_flow[u][v] -= path_flow
-                if remaining_flow[u][v] == 0:
-                    del remaining_flow[u][v]
-                edge_flows[(u, v)] += path_flow
-
-            paths.append((path, path_labels, path_flow))
-            current_flow += path_flow
-
-            if current_flow >= requested_flow:
-                break
-
-        return paths, dict(edge_flows)
-
-    def _find_path2(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str) -> Tuple[List[str], int]:
-        queue = deque([(source, [source], float('inf'))])
-        visited = set()
-
-        while queue:
-            node, path, flow = queue.popleft()
-            if node not in visited:
-                if node == sink:
-                    return path, int(flow)
-                visited.add(node)
-                for next_node, edge_flow in flow_dict[node].items():
+                for next_node, edge_flow in residual_flow.get(node, {}).items():
                     if edge_flow > 0:
                         new_flow = min(flow, edge_flow)
-                        queue.append((next_node, path + [next_node], new_flow))
+                        stack.append((next_node, path + [next_node], new_flow))
         return [], 0
 
     def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
