@@ -1,6 +1,6 @@
-<img src="img/pyfinder.webp" alt="pyfinder" style="height:300px;width:900px;">
+# PyFinder
 
-# pyFinder
+<img src="img/pyfinder2.webp" alt="pyfinder" style="height:300px;width:900px;">
 
 This project provides the Python implementation of the Pathfinder tool for the Circles UBI project. It includes network flow algorithms and tools to analyze and visualize the flow of value through a network of trust-based connections, facilitating the understanding and optimization of value transfers in the Circles UBI ecosystem.
 
@@ -12,6 +12,7 @@ This project provides the Python implementation of the Pathfinder tool for the C
 5. [Class Descriptions](#class-descriptions)
 6. [Running the Script](#running-the-script)
 7. [Examples](#examples)
+8. [Dashboard](#dashboard)
 
 ## Methodology
 
@@ -39,7 +40,6 @@ In a naive implementation, each edge's capacity would be set to the token balanc
 
 ![MultiDiGraph](img/MultiDiGraph.png)
 
-
 For example, if account A holds 100 units of token B and can send to both accounts C and D, a naive implementation might allow a total flow of 200 units (100 to C and 100 to D), which violates the actual balance constraint.
 
 ### Solution: Intermediate Nodes
@@ -65,7 +65,6 @@ This structure ensures:
 By using this intermediate node structure, we automatically enforce balance conservation without needing to modify standard flow algorithms.
 
 ![Intermediate Node](img/intermediate_node.png)
-
 
 For an actual implementation take the case take the requested Flow of 4000000000000000000 from node 9 to node 318. The full graph implementation gives 
 
@@ -113,46 +112,44 @@ python -m src.main
 
 ## Class Descriptions
 
-### DataIngestion
-Responsible for loading and preprocessing the trust and balance data.
-- Methods:
-  - `__init__(df_trusts, df_balances)`: Initializes with trust and balance DataFrames
-  - `_create_unique_df()`: Creates a DataFrame of unique addresses
-  - `_create_edge_data()`: Prepares edge data for graph creation
+### Classes
 
-### NetworkXGraph
-Creates and manages the NetworkX graph representation of the trust network.
-- Methods:
-  - `__init__(edges, capacities, tokens)`: Initializes the graph with edge data
-  - `compute_flow(source, sink, flow_func, requested_flow)`: Computes network flow
-  - `flow_decomposition(flow_dict, source, sink)`: Decomposes flow into paths
-  - `simplified_flow_decomposition(original_paths)`: Simplifies flow paths
+1. **GraphManager**
+   - Main class that orchestrates the flow analysis process.
+   - Methods:
+     - `__init__(self, trusts_file, balances_file, graph_type='networkx')`: Initializes the graph manager.
+     - `analyze_flow(self, source, sink, flow_func, cutoff)`: Performs flow analysis between source and sink.
+     - `visualize_flow(self, simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)`: Generates visualizations of the flow.
 
-### NetworkFlowAnalysis
-Implements network flow analysis algorithms and coordinates with visualization.
-- Methods:
-  - `__init__(df_trusts, df_balances)`: Initializes with trust and balance data
-  - `analyze_flow(source, sink, flow_func, requested_flow)`: Analyzes flow between nodes
-  - `simplify_graph(graph, edge_flows)`: Simplifies the graph for visualization
-  - `visualize_full_graph()`: Visualizes the full graph
-  - `visualize_flow_paths(paths, edge_flows)`: Visualizes flow paths
-  - `visualize_full_flow_paths(edge_flows, filename)`: Visualizes full flow paths
+2. **DataIngestion**
+   - Handles data loading and preprocessing.
+   - Methods:
+     - `__init__(self, df_trusts, df_balances)`: Initializes with trust and balance data.
+     - `_create_id_mappings(self)`: Creates mappings between addresses and internal IDs.
+     - `_create_edge_data(self)`: Generates edge data for the graph.
+     - `get_id_for_address(self, address)`: Retrieves internal ID for a given address.
+     - `get_address_for_id(self, id)`: Retrieves address for a given internal ID.
 
-### Visualization
-Provides methods for visualizing the graph and flow paths.
-- Methods:
-  - `plot_full_graph(g, filename)`: Plots the full graph
-  - `custom_flow_layout(G, source, sink)`: Creates a custom layout for flow graphs
-  - `plot_flow_paths(g, paths, edge_flows, filename)`: Plots simplified flow paths
-  - `plot_full_flow_paths(g, edge_flows, filename)`: Plots full flow paths
-  - `ensure_output_directory(directory)`: Ensures the output directory exists
+3. **NetworkXGraph / GraphToolGraph**
+   - Wrapper classes for graph libraries (NetworkX and graph-tool).
+   - Methods:
+     - `__init__(self, edges, capacities, tokens)`: Initializes the graph.
+     - `compute_flow(self, source, sink, flow_func, requested_flow)`: Computes maximum flow.
+     - `flow_decomposition(self, flow_dict, source, sink, requested_flow)`: Decomposes flow into paths.
+     - `simplified_flow_decomposition(self, original_paths)`: Simplifies flow paths.
 
-### GraphManager
-Coordinates the overall flow analysis process.
-- Methods:
-  - `__init__(trusts_file, balances_file)`: Initializes with input file paths
-  - `analyze_flow(source, sink, flow_func, cutoff)`: Analyzes flow between nodes
-  - `visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)`: Visualizes flow results
+4. **NetworkFlowAnalysis**
+   - Performs the core flow analysis.
+   - Methods:
+     - `analyze_flow(self, source, sink, flow_func, requested_flow)`: Main method for flow analysis.
+     - `simplify_edge_flows(self, edge_flows)`: Simplifies edge flows for visualization.
+
+5. **Visualization**
+   - Handles the creation of visualizations.
+   - Methods:
+     - `plot_flow_paths(g, paths, edge_flows, id_to_address, filename)`: Plots simplified flow paths.
+     - `plot_full_flow_paths(g, edge_flows, id_to_address, filename)`: Plots full flow paths.
+     - `custom_flow_layout(G, source, sink)`: Creates a custom layout for flow graphs.
 
 ## Running the Script
 
@@ -173,6 +170,20 @@ Coordinates the overall flow analysis process.
 
 5. View the results in the console and check the `output/` directory for visualizations and benchmark results.
 
+### Features
+
+1. **Graph Library Selection**: Choose between NetworkX and graph-tool for graph operations.
+2. **Algorithm Selection**: Select from various maximum flow algorithms:
+   - Default (Preflow Push)
+   - Edmonds-Karp
+   - Shortest Augmenting Path
+   - Boykov-Kolmogorov
+   - Dinitz
+3. **Source and Sink Input**: Enter Ethereum addresses for source and sink nodes.
+4. **Requested Flow**: Optionally specify a requested flow value.
+5. **Results Display**: View detailed results of the flow analysis.
+6. **Visualization**: Interactive graphs showing flow paths.
+
 ## Examples
 
 ### Run Mode Example
@@ -188,7 +199,6 @@ Coordinates the overall flow analysis process.
    - Execution time
    - Paths and edge flows
 5. Check the `output/` directory for visualizations:
-   - `full_graph.png`: Full network graph
    - `simplified_flow_paths.png`: Simplified flow paths
    - `full_flow_paths.png`: Full flow paths including intermediate nodes
 
@@ -199,13 +209,23 @@ Coordinates the overall flow analysis process.
 3. View the benchmark results in the console
 4. Check `output/benchmark_results.csv` for detailed results
 
-Note: You can modify the source-sink pairs for benchmarking in the `main.py` file.
+## Dashboard
 
-For more detailed examples and advanced usage, please refer to the `notebooks/analysis_examples.ipynb` Jupyter notebook.
+<img src="img/dashboard1.png" alt="pyfinder" style="height:150px;width:250px;"> <img src="img/dashboard2.png" alt="pyfinder" style="height:150px;width:250px;"> <img src="img/dashboard3.png" alt="pyfinder" style="height:150px;width:250px;">
 
+1. **Controls**: Input fields for source, sink, requested flow, and algorithm selection.
+2. **Results**: Displays the computed flow value, execution time, and other key metrics.
+3. **Transactions**: Shows a detailed list of transfers in the computed flow.
+4. **Flow Path Graphs**: Two interactive visualizations side by side:
+   - **Simplified Graph**: Displays a simplified version of the flow, hiding intermediate nodes.
+   - **Aggregated Graph**: Presents an aggregated view of transfers between main nodes.
 
-### Dashboard
+These visualizations provide different levels of detail, allowing users to analyze the flow from various perspectives.
 
-<img src="img/dashboard1.png" alt="pyfinder" style="height:200px;width:300px;">
-<img src="img/dashboard2.png" alt="pyfinder" style="height:200px;width:300px;">
-<img src="img/dashboard3.png" alt="pyfinder" style="height:200px;width:300px;">
+To launch the dashboard, run:
+
+```
+python dashboard.py
+```
+
+This will start a local server, and you can access the dashboard through your web browser.

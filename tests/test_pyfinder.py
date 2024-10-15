@@ -3,7 +3,18 @@ import pandas as pd
 import networkx as nx
 from src.graph_manager import GraphManager
 from src.data_ingestion import DataIngestion
-from networkx.algorithms.flow import boykov_kolmogorov
+from networkx.algorithms.flow import (
+    edmonds_karp,
+    preflow_push,
+    shortest_augmenting_path,
+    boykov_kolmogorov,
+    dinitz
+)
+from graph_tool.flow import (
+    edmonds_karp_max_flow,
+    push_relabel_max_flow,
+    boykov_kolmogorov_max_flow
+)
 import random
 import os
 import json
@@ -12,10 +23,11 @@ from collections import defaultdict
 class TestFlowAlgorithm(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Load the data and create the GraphManager
+        # Load the data and create the GraphManagers
         trusts_file = 'data/data-trust.csv'
         balances_file = 'data/data-balance.csv'
-        cls.graph_manager = GraphManager(trusts_file, balances_file)
+        cls.graph_manager_nx = GraphManager(trusts_file, balances_file, 'networkx')
+        cls.graph_manager_gt = GraphManager(trusts_file, balances_file, 'graph_tool')
         
         # Create DataIngestion object for direct access to trust and balance data
         df_trusts = pd.read_csv(trusts_file)
@@ -28,13 +40,13 @@ class TestFlowAlgorithm(unittest.TestCase):
 
     def get_random_addresses(self, n=5):
         # Get all nodes from the graph
-        all_nodes = list(self.graph_manager.graph.g_nx.nodes())
+        all_nodes = list(self.graph_manager_nx.graph.g_nx.nodes())
         
         # Filter out intermediate nodes (those containing '_')
         real_nodes = [node for node in all_nodes if '_' not in node]
         
         # Convert node IDs to addresses
-        addresses = [self.graph_manager.data_ingestion.get_address_for_id(node) for node in real_nodes]
+        addresses = [self.graph_manager_nx.data_ingestion.get_address_for_id(node) for node in real_nodes]
         
         # Remove any None values (in case some IDs don't have corresponding addresses)
         addresses = [addr for addr in addresses if addr is not None]
@@ -43,19 +55,38 @@ class TestFlowAlgorithm(unittest.TestCase):
         return random.sample(addresses, min(n, len(addresses)))
 
     def test_multiple_flows(self):
-        addresses = self.get_random_addresses(4) 
+        addresses = self.get_random_addresses(4)
         test_results = []
+
+        algorithms = {
+            'networkx': [
+                ('Default (Preflow Push)', preflow_push),
+                ('Edmonds-Karp', edmonds_karp),
+                ('Shortest Augmenting Path', shortest_augmenting_path),
+                ('Boykov-Kolmogorov', boykov_kolmogorov),
+                ('Dinitz', dinitz)
+            ],
+            'graph_tool': [
+                ('Default (Push-Relabel)', push_relabel_max_flow),
+                ('Edmonds-Karp', edmonds_karp_max_flow),
+                ('Boykov-Kolmogorov', boykov_kolmogorov_max_flow)
+            ]
+        }
 
         for i in range(len(addresses) - 1):
             source = addresses[i]
             sink = addresses[i + 1]
             
-            try:
-                result = self.analyze_and_verify_flow(source, sink)
-                test_results.append(result)
-            except (ValueError, nx.NetworkXError) as e:
-                print(f"Skipping pair ({source}, {sink}): {str(e)}")
-                continue
+            for library in ['networkx', 'graph_tool']:
+                graph_manager = self.graph_manager_nx if library == 'networkx' else self.graph_manager_gt
+                
+                for algo_name, algo_func in algorithms[library]:
+                    try:
+                        result = self.analyze_and_verify_flow(graph_manager, source, sink, algo_func, library, algo_name)
+                        test_results.append(result)
+                    except (ValueError, nx.NetworkXError) as e:
+                        print(f"Skipping pair ({source}, {sink}) with {algo_name} on {library}: {str(e)}")
+                        continue
 
         # Write test results to a file
         with open(os.path.join(self.output_dir, 'test_results.json'), 'w') as f:
@@ -63,9 +94,10 @@ class TestFlowAlgorithm(unittest.TestCase):
 
         self.assertGreater(len(test_results), 0, "No valid flow analyses were performed")
 
-
-    def analyze_and_verify_flow(self, source, sink):
+    def analyze_and_verify_flow(self, graph_manager, source, sink, algo_func, library, algo_name):
         result = {
+            'library': library,
+            'algorithm': algo_name,
             'source': source,
             'sink': sink,
             'transfers': [],
@@ -75,27 +107,27 @@ class TestFlowAlgorithm(unittest.TestCase):
 
         try:
             # Run the flow analysis
-            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = self.graph_manager.analyze_flow(source, sink, boykov_kolmogorov)
+            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = graph_manager.analyze_flow(source, sink, algo_func)
             
             result['flow_value'] = flow_value
 
             # Initialize balance changes with initial balances
             for (sender, receiver), token_flows in simplified_edge_flows.items():
                 for address in [sender, receiver]:
-                    address_str = self.graph_manager.data_ingestion.get_address_for_id(address)
+                    address_str = graph_manager.data_ingestion.get_address_for_id(address)
                     for token, _ in token_flows.items():
-                        token_address = self.graph_manager.data_ingestion.get_address_for_id(token)
+                        token_address = graph_manager.data_ingestion.get_address_for_id(token)
                         initial_balance = self.get_balance(address_str, token_address)
                         result['balance_changes'][address_str][token_address]['initial'] = initial_balance
                         result['balance_changes'][address_str][token_address]['final'] = initial_balance
 
             # Process transfers and update balances
             for (sender, receiver), token_flows in simplified_edge_flows.items():
-                sender_address = self.graph_manager.data_ingestion.get_address_for_id(sender)
-                receiver_address = self.graph_manager.data_ingestion.get_address_for_id(receiver)
+                sender_address = graph_manager.data_ingestion.get_address_for_id(sender)
+                receiver_address = graph_manager.data_ingestion.get_address_for_id(receiver)
                 
                 for token, flow in token_flows.items():
-                    token_address = self.graph_manager.data_ingestion.get_address_for_id(token)
+                    token_address = graph_manager.data_ingestion.get_address_for_id(token)
                     
                     # Record transfer
                     transfer = {
