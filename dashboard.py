@@ -27,7 +27,7 @@ pn.extension()
 class NetworkFlowDashboard(param.Parameterized):
     source = param.String(default="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0")
     sink = param.String(default="0xe98f0672a8e31b408124f975749905f8003a2e04")
-    requested_flow = param.String(default="")
+    requested_flow_mCRC = param.String(default="")
     algorithm = param.ObjectSelector(default="Default (Preflow Push)", objects=[
         "Default (Preflow Push)",
         "Edmonds-Karp",
@@ -85,12 +85,12 @@ class NetworkFlowDashboard(param.Parameterized):
             self.stats_pane.object = "Please initialize the graph manager first."
             return
 
-        requested_flow = None if not self.requested_flow else self.requested_flow
+        requested_flow_mCRC = None if not self.requested_flow_mCRC else self.requested_flow_mCRC
         algorithm_func = self.get_algorithm_func()
         
         start_time = time.time()
         try:
-            self.results = self.graph_manager.analyze_flow(self.source, self.sink, flow_func=algorithm_func, cutoff=requested_flow)
+            self.results = self.graph_manager.analyze_flow(self.source, self.sink, flow_func=algorithm_func, cutoff=requested_flow_mCRC)
         except Exception as e:
             self.stats_pane.object = f"An error occurred during analysis: {str(e)}"
             return
@@ -135,7 +135,7 @@ class NetworkFlowDashboard(param.Parameterized):
         stats = f"""
         # Results
         - Algorithm: {self.algorithm}
-        - Requested Flow: {self.requested_flow if self.requested_flow else 'Max Flow'}
+        - Requested Flow: {self.requested_flow_mCRC if self.requested_flow_mCRC else 'Max Flow'}
         - Achieved Flow Value: {flow_value}
         - Computation Time: {computation_time:.4f} seconds
         - Number of Simplified Paths: {len(simplified_paths)}
@@ -301,7 +301,7 @@ class NetworkFlowDashboard(param.Parameterized):
               for name, widget in {
                   'source': pn.widgets.TextInput,
                   'sink': pn.widgets.TextInput,
-                  'requested_flow': pn.widgets.TextInput,
+                  'requested_flow_mCRC': pn.widgets.TextInput,
                   'algorithm': pn.widgets.Select,
               }.items()],
             run_button

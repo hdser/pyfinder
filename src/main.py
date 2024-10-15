@@ -84,7 +84,7 @@ def run_mode(graph_manager: GraphManager):
 
             break
 
-        requested_flow = input("Enter requested flow value (press Enter for max flow): ")
+        requested_flow = input("Enter requested flow value (press Enter for max flow) [mCRC]: ")
         requested_flow = requested_flow if requested_flow else None
 
         try:
@@ -100,9 +100,9 @@ def run_mode(graph_manager: GraphManager):
 
             print(f"\nAlgorithm: {algo_name}")
             print(f"Execution time: {execution_time:.4f} seconds")
-            print(f"Flow from {source} to {sink}: {flow_value}")
+            print(f"Flow from {source} to {sink}: {flow_value} mCRC")
             if requested_flow is not None:
-                print(f"Requested flow: {requested_flow}")
+                print(f"Requested flow [mCRC]: {requested_flow}")
                 if int(flow_value) < int(requested_flow):
                     print("Note: Achieved flow is less than requested flow.")
 
@@ -136,7 +136,7 @@ def benchmark_mode(graph_manager: GraphManager):
 
     print(f"\nNode information:\n{graph_manager.get_node_info()}")
 
-    requested_flow = input("Enter requested flow value for all pairs (press Enter for max flow): ")
+    requested_flow = input("Enter requested flow value for all pairs (press Enter for max flow) [mCRC]: ")
     requested_flow = requested_flow if requested_flow else None
 
     num_pairs_input = input("Enter the number of random source-sink pairs to test: ")
