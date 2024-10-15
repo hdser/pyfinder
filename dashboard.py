@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from collections import defaultdict
 import io
+import time
 from src.graph_manager import GraphManager
 from src.visualization import Visualization
 from networkx.algorithms.flow import (
@@ -15,13 +16,18 @@ from networkx.algorithms.flow import (
     boykov_kolmogorov,
     dinitz,
 )
+from graph_tool.flow import (
+    edmonds_karp_max_flow,
+    push_relabel_max_flow,
+    boykov_kolmogorov_max_flow,
+)
 
 pn.extension()
 
 class NetworkFlowDashboard(param.Parameterized):
     source = param.String(default="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0")
     sink = param.String(default="0xe98f0672a8e31b408124f975749905f8003a2e04")
-    requested_flow = param.String(default="")
+    requested_flow_mCRC = param.String(default="")
     algorithm = param.ObjectSelector(default="Default (Preflow Push)", objects=[
         "Default (Preflow Push)",
         "Edmonds-Karp",
@@ -29,10 +35,11 @@ class NetworkFlowDashboard(param.Parameterized):
         "Boykov-Kolmogorov",
         "Dinitz"
     ])
+    graph_library = param.ObjectSelector(default="NetworkX", objects=["NetworkX", "graph-tool"])
     
     def __init__(self, **params):
         super().__init__(**params)
-        self.graph_manager = GraphManager('data/data-trust.csv', 'data/data-balance.csv')
+        self.graph_manager = None
         self.visualization = Visualization()
         self.results = None
         self.stats_pane = pn.pane.Markdown("Results will appear here after analysis.")
@@ -49,24 +56,67 @@ class NetworkFlowDashboard(param.Parameterized):
             visible=False
         )
 
+    def initialize_graph_manager(self, event):
+        trusts_file = 'data/data-trust.csv'
+        balances_file = 'data/data-balance.csv'
+        graph_library = 'networkx' if self.graph_library == 'NetworkX' else 'graph_tool'
+        self.graph_manager = GraphManager(trusts_file, balances_file, graph_library)
+        self.param.algorithm.objects = self.get_algorithm_list()
+        self.algorithm = self.param.algorithm.objects[0]
+
+    def get_algorithm_list(self):
+        if self.graph_library == 'NetworkX':
+            return [
+                "Default (Preflow Push)",
+                "Edmonds-Karp",
+                "Shortest Augmenting Path",
+                "Boykov-Kolmogorov",
+                "Dinitz"
+            ]
+        else:  # graph-tool
+            return [
+                "Default (Push-Relabel)",
+                "Edmonds-Karp",
+                "Boykov-Kolmogorov"
+            ]
+
     def run_analysis(self, event):
-        requested_flow = None if not self.requested_flow else self.requested_flow
+        if self.graph_manager is None:
+            self.stats_pane.object = "Please initialize the graph manager first."
+            return
+
+        requested_flow_mCRC = None if not self.requested_flow_mCRC else self.requested_flow_mCRC
         algorithm_func = self.get_algorithm_func()
         
-        self.results = self.graph_manager.analyze_flow(self.source, self.sink, flow_func=algorithm_func, cutoff=requested_flow)
-        self.update_results_view()
+        start_time = time.time()
+        try:
+            self.results = self.graph_manager.analyze_flow(self.source, self.sink, flow_func=algorithm_func, cutoff=requested_flow_mCRC)
+        except Exception as e:
+            self.stats_pane.object = f"An error occurred during analysis: {str(e)}"
+            return
+        end_time = time.time()
+        computation_time = end_time - start_time
+        
+        self.update_results_view(computation_time)
 
     def get_algorithm_func(self):
-        algorithm_map = {
-            "Default (Preflow Push)": preflow_push,
-            "Edmonds-Karp": edmonds_karp,
-            "Shortest Augmenting Path": shortest_augmenting_path,
-            "Boykov-Kolmogorov": boykov_kolmogorov,
-            "Dinitz": dinitz
-        }
+        if self.graph_library == 'NetworkX':
+            algorithm_map = {
+                "Default (Preflow Push)": preflow_push,
+                "Edmonds-Karp": edmonds_karp,
+                "Shortest Augmenting Path": shortest_augmenting_path,
+                "Boykov-Kolmogorov": boykov_kolmogorov,
+                "Dinitz": dinitz
+            }
+        else:  # graph-tool
+            algorithm_map = {
+                "Default (Push-Relabel)": push_relabel_max_flow,
+                "Edmonds-Karp": edmonds_karp_max_flow,
+                "Boykov-Kolmogorov": boykov_kolmogorov_max_flow
+            }
         return algorithm_map[self.algorithm]
 
-    def update_results_view(self):
+    def update_results_view(self, computation_time):
         if self.results is None:
             self.stats_pane.object = "No results yet. Click 'Run Analysis' to start."
             self.transactions_box[-1].object = """
@@ -81,11 +131,13 @@ class NetworkFlowDashboard(param.Parameterized):
 
         flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = self.results
 
+
         stats = f"""
         # Results
         - Algorithm: {self.algorithm}
-        - Requested Flow: {self.requested_flow if self.requested_flow else 'Max Flow'}
+        - Requested Flow: {self.requested_flow_mCRC if self.requested_flow_mCRC else 'Max Flow'}
         - Achieved Flow Value: {flow_value}
+        - Computation Time: {computation_time:.4f} seconds
         - Number of Simplified Paths: {len(simplified_paths)}
         - Number of Original Edges: {len(original_edge_flows)}
         - Number of Simplified Transfers: {sum(len(flows) for flows in simplified_edge_flows.values())}
@@ -110,11 +162,11 @@ class NetworkFlowDashboard(param.Parameterized):
         """
         self.transactions_box.visible = True
         
-        self.full_graph_pane.object = self.create_path_graph(self.graph_manager.graph.g_nx, original_edge_flows, "Full Graph")
+        self.full_graph_pane.object = self.create_path_graph(self.graph_manager.graph, original_edge_flows, "Full Graph")
         self.simplified_graph_pane.object = self.create_aggregated_graph(simplified_edge_flows, "Simplified Transfers Graph")
 
     def create_path_graph(self, G, edge_flows, title):
-        plt.figure(figsize=(10, 7))
+        plt.figure(figsize=(8, 5))  # Reduced figure size
         
         # Create a subgraph with only the nodes and edges in the flow
         subgraph = nx.DiGraph()
@@ -129,25 +181,25 @@ class NetworkFlowDashboard(param.Parameterized):
         
         # Draw nodes
         noncross_nodes = [node for node in subgraph.nodes() if '_' not in node]
-        nx.draw_networkx_nodes(subgraph, pos, nodelist=noncross_nodes, node_color='lightblue', node_shape='o', node_size=500)
+        nx.draw_networkx_nodes(subgraph, pos, nodelist=noncross_nodes, node_color='lightblue', node_shape='o', node_size=200)
         
         cross_nodes = [node for node in subgraph.nodes() if '_' in node]
-        nx.draw_networkx_nodes(subgraph, pos, nodelist=cross_nodes, node_color='red', node_shape='P', node_size=300)
+        nx.draw_networkx_nodes(subgraph, pos, nodelist=cross_nodes, node_color='red', node_shape='P', node_size=100)
         
-        nx.draw_networkx_labels(subgraph, pos, font_size=8, font_weight='bold')
+        nx.draw_networkx_labels(subgraph, pos, font_size=6, font_weight='bold')
 
         # Draw edges
-        nx.draw_networkx_edges(subgraph, pos, edge_color='gray', arrows=True, arrowsize=20, connectionstyle="arc3,rad=0.1")
+        nx.draw_networkx_edges(subgraph, pos, edge_color='gray', arrows=True, arrowsize=10, connectionstyle="arc3,rad=0.1")
 
         # Prepare edge labels
         edge_labels = {}
         for (u, v), flow in edge_flows.items():
-            label = f"Flow: {flow}\nToken: {G[u][v]['label']}"
+            label = f"Flow: {flow}\nToken: {G.get_edge_data(u, v)['label']}"
             edge_labels[(u, v)] = label
         
-        nx.draw_networkx_edge_labels(subgraph, pos, edge_labels=edge_labels, font_size=6)
+        nx.draw_networkx_edge_labels(subgraph, pos, edge_labels=edge_labels, font_size=4)
 
-        plt.title(title, fontsize=16)
+        plt.title(title, fontsize=12)
         plt.axis('off')
         plt.tight_layout()
         
@@ -159,7 +211,7 @@ class NetworkFlowDashboard(param.Parameterized):
         return buf
 
     def create_aggregated_graph(self, simplified_edge_flows, title):
-        plt.figure(figsize=(10, 7))
+        plt.figure(figsize=(8, 5))  # Reduced figure size
         ax = plt.gca()
         
         # Create a graph with simplified flows
@@ -176,8 +228,8 @@ class NetworkFlowDashboard(param.Parameterized):
         pos = self.visualization.custom_flow_layout(G, source, sink)
         
         # Draw nodes
-        nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_shape='o', node_size=500, ax=ax)
-        nx.draw_networkx_labels(G, pos, font_size=8, font_weight='bold', ax=ax)
+        nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_shape='o', node_size=200, ax=ax)
+        nx.draw_networkx_labels(G, pos, font_size=6, font_weight='bold', ax=ax)
 
         # Prepare edge labels and organize edges between the same nodes
         edge_labels = {}
@@ -189,10 +241,10 @@ class NetworkFlowDashboard(param.Parameterized):
         for (u, v), keys in edges_between_nodes.items():
             num_edges = len(keys)
             if num_edges == 1:
-                rad_list = [0.0] 
+                rad_list = [0.15] 
             else:
-                # Assign curvature values ranging from -0.5 to 0.5
-                rad_list = np.linspace(-0.5, 0.5, num_edges)
+                # Assign curvature values ranging from -0.3 to 0.3
+                rad_list = np.linspace(-0.3, 0.3, num_edges)
             for k, rad in zip(keys, rad_list):
                 edge_data = G[u][v][k]
                 label = f"Flow: {edge_data['flow']}\nToken: {edge_data['token']}"
@@ -209,7 +261,7 @@ class NetworkFlowDashboard(param.Parameterized):
                     arrowstyle='-|>',
                     mutation_scale=20,
                     color='gray',
-                    linewidth=1,
+                    linewidth=0.5,
                     zorder=1 
                 )
                 ax.add_patch(arrow)
@@ -223,9 +275,9 @@ class NetworkFlowDashboard(param.Parameterized):
                 midpoint = np.array([(x1 + x2) / 2, (y1 + y2) / 2]) + offset
 
                 # Add the label at the calculated position
-                plt.text(midpoint[0], midpoint[1], label, fontsize=6, ha='center', va='center', zorder=2)
+                plt.text(midpoint[0], midpoint[1], label, fontsize=4, ha='center', va='center', zorder=2)
 
-        plt.title(title, fontsize=16)
+        plt.title(title, fontsize=12)
         plt.axis('off')
         plt.tight_layout()
         
@@ -238,20 +290,24 @@ class NetworkFlowDashboard(param.Parameterized):
         return buf
 
     def view(self):
+        init_button = pn.widgets.Button(name="Initialize Graph", button_type="primary")
         run_button = pn.widgets.Button(name="Run Analysis", button_type="primary")
         
         controls = pn.Column(
             pn.pane.Markdown("## Controls"),
+            pn.Param(self.param.graph_library, widgets={'graph_library': pn.widgets.Select}),
+            init_button,
             *[pn.Param(self.param[name], widgets={name: widget}) 
               for name, widget in {
                   'source': pn.widgets.TextInput,
                   'sink': pn.widgets.TextInput,
-                  'requested_flow': pn.widgets.TextInput,
+                  'requested_flow_mCRC': pn.widgets.TextInput,
                   'algorithm': pn.widgets.Select,
               }.items()],
             run_button
         )
         
+        init_button.on_click(self.initialize_graph_manager)
         run_button.on_click(self.run_analysis)
 
         graph_tabs = pn.Tabs(
@@ -259,20 +315,19 @@ class NetworkFlowDashboard(param.Parameterized):
             ("Aggregated Graph", self.simplified_graph_pane)
         )
 
+        main_content = pn.Column(
+            pn.pane.Markdown("## Network Flow Analysis"),
+            self.stats_pane,
+            self.transactions_box,
+            pn.pane.Markdown("## Flow Paths"),
+            graph_tabs,
+            width=800  # Set a fixed width for the main content
+        )
+
         template = pn.template.MaterialTemplate(
             title="pyFinder Flow Analysis Dashboard",
             sidebar=[controls],
-            main=[
-                pn.Row(
-                    pn.Column(
-                        pn.pane.Markdown("## Network Flow Analysis"),
-                        self.stats_pane,
-                        self.transactions_box,
-                        pn.pane.Markdown("## Flow Paths"),
-                        graph_tabs
-                    )
-                )
-            ],
+            main=[main_content],
         )
         return template
 
