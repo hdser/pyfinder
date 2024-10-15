@@ -202,3 +202,10 @@ Coordinates the overall flow analysis process.
 Note: You can modify the source-sink pairs for benchmarking in the `main.py` file.
 
 For more detailed examples and advanced usage, please refer to the `notebooks/analysis_examples.ipynb` Jupyter notebook.
+
+
+### Dashboard
+
+<img src="img/dashboard1.png" alt="pyfinder" style="height:200px;width:300px;">
+<img src="img/dashboard2.png" alt="pyfinder" style="height:200px;width:300px;">
+<img src="img/dashboard3.png" alt="pyfinder" style="height:200px;width:300px;">

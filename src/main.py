@@ -1,5 +1,5 @@
 from src.graph_manager import GraphManager
-from src.graph_creation import NetworkXGraph, GraphToolGraph
+from src.graph import NetworkXGraph, GraphToolGraph
 import networkx as nx
 from networkx.algorithms.flow import (
     edmonds_karp, 

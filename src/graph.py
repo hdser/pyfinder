@@ -28,9 +28,6 @@ class BaseGraph:
     def get_edge_data(self, u: str, v: str) -> Dict:
         raise NotImplementedError("Subclass must implement abstract method")
 
-import networkx as nx
-from typing import List, Tuple, Dict, Callable, Optional
-from collections import defaultdict, deque
 
 class NetworkXGraph(BaseGraph):
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
@@ -59,12 +56,47 @@ class NetworkXGraph(BaseGraph):
             flow_func = nx.algorithms.flow.preflow_push
 
         print('Started Flow Computation...')
+        
+        # Check if sink has incoming edges
+        if self.g_nx.in_degree(sink) == 0:
+            print("Sink has no incoming edges. No flow is possible.")
+            return 0, {}
+
+        # Check for direct edges between source and sink
+        direct_flow = 0
+        direct_flow_dict = defaultdict(lambda: defaultdict(int))
+        
+        for node in self.g_nx.successors(source):
+            if '_' in node and sink in self.g_nx.successors(node):
+                capacity_source_intermediate = self.g_nx[source][node]['capacity']
+                capacity_intermediate_sink = self.g_nx[node][sink]['capacity']
+                flow = min(capacity_source_intermediate, capacity_intermediate_sink)
+                
+                if requested_flow is not None:
+                    flow = min(flow, int(requested_flow) - direct_flow)
+                
+                if flow > 0:
+                    direct_flow += flow
+                    direct_flow_dict[source][node] = flow
+                    direct_flow_dict[node][sink] = flow
+                
+                if requested_flow is not None and direct_flow >= int(requested_flow):
+                    break
+
+        # If we've satisfied the requested flow with direct edges, return
+        if requested_flow is not None and direct_flow >= int(requested_flow):
+            print(f"Satisfied requested flow of {requested_flow} with direct edges.")
+            return direct_flow, dict(direct_flow_dict)
+
+        # Compute remaining flow
+        remaining_requested_flow = None if requested_flow is None else int(requested_flow) - direct_flow
+
         try:
-            requested_flow_int = int(requested_flow) if requested_flow else None
             try:
-                flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func, cutoff=requested_flow_int)
+                flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func, cutoff=remaining_requested_flow)
             except:
                 flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
+            
             flow_value = int(flow_value)
             flow_dict = {u: {v: int(f) for v, f in flows.items()} for u, flows in flow_dict.items()}
         except Exception as e:
@@ -72,13 +104,15 @@ class NetworkXGraph(BaseGraph):
             raise
 
         print('Ended Flow Computation...')
-        print('flow value ', flow_value)
+        print('flow value ', flow_value + direct_flow)
 
-        if requested_flow_int and flow_value > requested_flow_int:
-            flow_value = requested_flow_int
-            flow_dict = self._limit_flow(flow_dict, source, sink, requested_flow_int)
+        # Combine direct flow with computed flow
+        for u, flows in direct_flow_dict.items():
+            for v, f in flows.items():
+                flow_dict.setdefault(u, {})[v] = flow_dict.get(u, {}).get(v, 0) + f
 
-        return flow_value, flow_dict
+        return flow_value + direct_flow, flow_dict
+    
 
     def _limit_flow(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str, limit: int) -> Dict[str, Dict[str, int]]:
         limited_flow_dict = defaultdict(lambda: defaultdict(int))
@@ -271,6 +305,46 @@ class GraphToolGraph(BaseGraph):
         print(f"Number of edges: {self.g_gt.num_edges()}")
         print(f"Flow function: {flow_func.__name__}")
 
+        # Check if sink has incoming edges
+        if t.in_degree() == 0:
+            print("Sink has no incoming edges. No flow is possible.")
+            return 0, {}
+
+        # Check for direct edges between source and sink
+        direct_flow = 0
+        direct_flow_dict = defaultdict(lambda: defaultdict(int))
+        
+        for e in s.out_edges():
+            v = e.target()
+            if '_' in self.vertex_id[v]:
+                for e2 in v.out_edges():
+                    if e2.target() == t:
+                        capacity_source_intermediate = self.capacity[e]
+                        capacity_intermediate_sink = self.capacity[e2]
+                        flow = min(capacity_source_intermediate, capacity_intermediate_sink)
+                        
+                        if requested_flow is not None:
+                            flow = min(flow, int(requested_flow) - direct_flow)
+                        
+                        if flow > 0:
+                            direct_flow += flow
+                            direct_flow_dict[source][self.vertex_id[v]] = flow
+                            direct_flow_dict[self.vertex_id[v]][sink] = flow
+                        
+                        if requested_flow is not None and direct_flow >= int(requested_flow):
+                            break
+                
+                if requested_flow is not None and direct_flow >= int(requested_flow):
+                    break
+
+        # If we've satisfied the requested flow with direct edges, return
+        if requested_flow is not None and direct_flow >= int(requested_flow):
+            print(f"Satisfied requested flow of {requested_flow} with direct edges.")
+            return direct_flow, dict(direct_flow_dict)
+
+        # Compute remaining flow
+        remaining_requested_flow = None if requested_flow is None else int(requested_flow) - direct_flow
+
         res = flow_func(self.g_gt, s, t, self.capacity)
 
         flow = self.capacity.copy()
@@ -279,8 +353,8 @@ class GraphToolGraph(BaseGraph):
         flow_value = int(sum(flow[e] for e in t.in_edges()))  # Ensure integer flow value
         print(f"Total flow value: {flow_value}")
 
-        if requested_flow is not None:
-            max_flow = int(requested_flow)
+        if remaining_requested_flow is not None:
+            max_flow = int(remaining_requested_flow)
             if flow_value > max_flow:
                 flow_value = max_flow
                 print(f"Adjusted flow to requested value: {flow_value}")
@@ -297,7 +371,13 @@ class GraphToolGraph(BaseGraph):
                 v = self.vertex_id[e.target()]
                 flow_dict[u][v] += f
 
-        return flow_value, dict(flow_dict)
+        # Combine direct flow with computed flow
+        for u, flows in direct_flow_dict.items():
+            for v, f in flows.items():
+                flow_dict[u][v] += f
+
+        return flow_value + direct_flow, dict(flow_dict)
+    
 
     def flow_decomposition(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str, requested_flow: Optional[int] = None, method: str = 'bfs') -> Tuple[List[Tuple[List[str], List[str], int]], Dict[Tuple[str, str], int]]:
         """

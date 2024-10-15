@@ -1,6 +1,6 @@
 import networkx as nx
 from typing import List, Tuple, Dict, Callable, Optional
-from .graph_creation import NetworkXGraph, GraphToolGraph
+from .graph import NetworkXGraph, GraphToolGraph
 
 class NetworkFlowAnalysis:
     def __init__(self, graph: NetworkXGraph | GraphToolGraph):

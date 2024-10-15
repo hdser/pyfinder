@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Callable, Optional
 import networkx as nx
 from .data_ingestion import DataIngestion
-from .graph_creation import NetworkXGraph, GraphToolGraph, GraphCreator
+from .graph import NetworkXGraph, GraphToolGraph, GraphCreator
 from .flow_analysis import NetworkFlowAnalysis
 from .visualization import Visualization
 import random
