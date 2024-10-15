@@ -6,7 +6,6 @@ from graph_tool.util import find_edge
 from typing import List, Tuple, Dict, Callable, Optional
 import time
 from collections import defaultdict, deque
-import heapq
 
 class GraphCreator:
     @staticmethod
@@ -62,7 +61,10 @@ class NetworkXGraph(BaseGraph):
         print('Started Flow Computation...')
         try:
             requested_flow_int = int(requested_flow) if requested_flow else None
-            flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func, cutoff=requested_flow_int)
+            try:
+                flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func, cutoff=requested_flow_int)
+            except:
+                flow_value, flow_dict = nx.maximum_flow(self.g_nx, source, sink, flow_func=flow_func)
             flow_value = int(flow_value)
             flow_dict = {u: {v: int(f) for v, f in flows.items()} for u, flows in flow_dict.items()}
         except Exception as e:
@@ -70,6 +72,7 @@ class NetworkXGraph(BaseGraph):
             raise
 
         print('Ended Flow Computation...')
+        print('flow value ', flow_value)
 
         if requested_flow_int and flow_value > requested_flow_int:
             flow_value = requested_flow_int
@@ -153,29 +156,34 @@ class NetworkXGraph(BaseGraph):
     def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
         simplified_paths = []
         for path, labels, flow in original_paths:
+            simplified_path = []
+            simplified_labels = []
+            current_token = None
+            for i, (node, label) in enumerate(zip(path, labels + [None])):
+                if '_' not in node:
+                    if current_token is None or label != current_token:
+                        if simplified_path:
+                            simplified_path.append(node)
+                            simplified_labels.append(current_token)
+                        else:
+                            simplified_path = [node]
+                        current_token = label
+                    elif i == len(path) - 1:
+                        simplified_path.append(node)
+                        simplified_labels.append(current_token)
+            if len(simplified_path) > 1:
+                simplified_paths.append((simplified_path, simplified_labels, flow))
+        return simplified_paths
+    
+    def simplified_flow_decomposition2(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
+        simplified_paths = []
+        for path, labels, flow in original_paths:
             simplified_path = [node for node in path if '_' not in node]
             simplified_labels = [label for node, label in zip(path[1:], labels) if '_' not in node]
             if len(simplified_path) > 1:
                 simplified_paths.append((simplified_path, simplified_labels, flow))
         return simplified_paths
 
-
-class PathVisitor(DFSVisitor):
-    def __init__(self, residual_capacity, target):
-        self.residual_capacity = residual_capacity
-        self.target = target
-        self.path = []
-        self.found = False
-
-    def discover_vertex(self, u):
-        self.path.append(u)
-        if u == self.target:
-            self.found = True
-            raise StopIteration()
-
-    def examine_edge(self, e):
-        if self.residual_capacity[e] == 0:
-            raise ValueError() 
 
 
 class GraphToolGraph(BaseGraph):
@@ -187,6 +195,7 @@ class GraphToolGraph(BaseGraph):
         self.token = self.g_gt.edge_properties["token"]
         self.vertex_id = self.g_gt.vertex_properties["id"]
         self.id_to_vertex = {self.vertex_id[v]: v for v in self.g_gt.vertices()}
+        self.vertex_map = {self.vertex_id[v]: v for v in self.g_gt.vertices()}
 
     def _create_graph(self, edges: List[Tuple[str, str]], capacities: List[int], tokens: List[str]) -> Graph:
         g = Graph(directed=True)
@@ -246,8 +255,8 @@ class GraphToolGraph(BaseGraph):
 
     def get_vertex(self, vertex_id: str):
         return self.id_to_vertex.get(vertex_id)
-    
-    def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
+
+    def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[int] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
         s = self.get_vertex(source)
         t = self.get_vertex(sink)
 
@@ -256,10 +265,6 @@ class GraphToolGraph(BaseGraph):
 
         if flow_func is None:
             flow_func = push_relabel_max_flow
-        elif flow_func == edmonds_karp_max_flow:
-            flow_func = edmonds_karp_max_flow
-        elif flow_func == boykov_kolmogorov_max_flow:
-            flow_func = boykov_kolmogorov_max_flow
 
         print(f"Computing flow from {source} to {sink}")
         print(f"Number of vertices: {self.g_gt.num_vertices()}")
@@ -294,10 +299,9 @@ class GraphToolGraph(BaseGraph):
 
         return flow_value, dict(flow_dict)
 
-
     def flow_decomposition(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str, requested_flow: Optional[int] = None, method: str = 'bfs') -> Tuple[List[Tuple[List[str], List[str], int]], Dict[Tuple[str, str], int]]:
         """
-        Decompose the flow into paths using either BFS or DFS.
+        Decompose the flow into paths using BFS or DFS.
 
         Parameters:
         - flow_dict: The flow dictionary obtained from compute_flow.
@@ -315,27 +319,13 @@ class GraphToolGraph(BaseGraph):
         if s is None or t is None:
             raise ValueError(f"Source node '{source}' or sink node '{sink}' not in graph.")
 
-        total_flow = sum(flow_dict[source].values())
+        total_flow = sum(flow_dict[source].values()) if source in flow_dict else 0
         if requested_flow is None or requested_flow > total_flow:
             requested_flow = total_flow
 
         paths = []
         edge_flows = defaultdict(int)
         current_flow = 0
-
-        # First, process direct edge from source to sink if any
-        if sink in flow_dict.get(source, {}):
-            direct_flow = flow_dict[source][sink]
-            path = [source, sink]
-            e = self.g_gt.edge(self.get_vertex(source), self.get_vertex(sink))
-            path_labels = [self.token[e]]
-            paths.append((path, path_labels, direct_flow))
-            edge_flows[(source, sink)] += direct_flow
-            # Update flow_dict
-            del flow_dict[source][sink]
-            if not flow_dict[source]:
-                del flow_dict[source]
-            current_flow += direct_flow
 
         # Build residual flow graph
         residual_flow = {u: dict(v) for u, v in flow_dict.items()}
@@ -374,15 +364,17 @@ class GraphToolGraph(BaseGraph):
         Returns:
         - A tuple containing the path and the minimum flow on that path.
         """
-        queue = deque([(source, [source], float('inf'))])
-        visited = set()
+        queue = deque()
+        queue.append((source, [source], float('inf')))
+        visited = {source}
+
         while queue:
             node, path, flow = queue.popleft()
             if node == sink:
                 return path, flow
-            visited.add(node)
             for next_node, edge_flow in residual_flow.get(node, {}).items():
                 if edge_flow > 0 and next_node not in visited:
+                    visited.add(next_node)
                     new_flow = min(flow, edge_flow)
                     queue.append((next_node, path + [next_node], new_flow))
         return [], 0
@@ -396,6 +388,7 @@ class GraphToolGraph(BaseGraph):
         """
         stack = [(source, [source], float('inf'))]
         visited = set()
+
         while stack:
             node, path, flow = stack.pop()
             if node == sink:
@@ -407,8 +400,30 @@ class GraphToolGraph(BaseGraph):
                         new_flow = min(flow, edge_flow)
                         stack.append((next_node, path + [next_node], new_flow))
         return [], 0
-
+    
     def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
+        simplified_paths = []
+        for path, labels, flow in original_paths:
+            simplified_path = []
+            simplified_labels = []
+            current_token = None
+            for i, (node, label) in enumerate(zip(path, labels + [None])):
+                if '_' not in node:
+                    if current_token is None or label != current_token:
+                        if simplified_path:
+                            simplified_path.append(node)
+                            simplified_labels.append(current_token)
+                        else:
+                            simplified_path = [node]
+                        current_token = label
+                    elif i == len(path) - 1:
+                        simplified_path.append(node)
+                        simplified_labels.append(current_token)
+            if len(simplified_path) > 1:
+                simplified_paths.append((simplified_path, simplified_labels, flow))
+        return simplified_paths
+
+    def simplified_flow_decomposition2(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
         simplified_paths = []
         for path, labels, flow in original_paths:
             simplified_path = [node for node in path if '_' not in node]

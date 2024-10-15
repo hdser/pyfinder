@@ -5,6 +5,7 @@ from .data_ingestion import DataIngestion
 from .graph_creation import NetworkXGraph, GraphToolGraph, GraphCreator
 from .flow_analysis import NetworkFlowAnalysis
 from .visualization import Visualization
+import random
 
 class GraphManager:
     def __init__(self, trusts_file: str, balances_file: str, graph_type: str = 'networkx'):

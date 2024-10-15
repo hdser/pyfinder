@@ -45,11 +45,6 @@ class DataIngestion:
 
         # Convert balances and filter out non-positive balances
         df_filtered['balance'] = df_filtered['demurragedTotalBalance'].apply(self._convert_balance)
-        
-        # Log the number of zero balances
-        zero_balances = (df_filtered['balance'] == 0).sum()
-        print(f"Number of zero balances: {zero_balances}")
-
         df_filtered = df_filtered[df_filtered['balance'] > 0]
 
         # Map addresses to IDs
@@ -76,7 +71,6 @@ class DataIngestion:
         capacities = all_edges['capacity'].tolist()
         tokens = all_edges['token'].tolist()
 
-        print(f"Created {len(edges)} unique edges")
 
         # Debug: Check for duplicates in the created edges
         edge_set = set()

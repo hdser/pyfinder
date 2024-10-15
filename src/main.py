@@ -15,10 +15,35 @@ from typing import List, Tuple, Callable, Optional
 import pandas as pd
 import random
 import signal
-
+import os
+from datetime import datetime
 
 def timeout_handler(signum, frame):
     raise TimeoutError("Flow computation timed out")
+
+def write_transaction_info(flow_value, execution_time, simplified_paths, simplified_edge_flows, id_to_address, output_dir):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{output_dir}/flow_results_{timestamp}.txt"
+    
+    with open(filename, 'w') as f:
+        f.write("Flow Computation Results\n")
+        f.write("------------------------\n")
+        f.write(f"Total Flow: {flow_value}\n")
+        f.write(f"Computation Time: {execution_time:.6f}s\n")
+        f.write(f"Number of Transfers: {len(simplified_edge_flows)}\n\n")
+        f.write(f"Distinct Paths: {len(simplified_paths)}\n\n")
+        
+        f.write("Detailed Transfers:\n")
+        f.write("-------------------\n")
+        for (u, v), token_flows in simplified_edge_flows.items():
+            for token, flow in token_flows.items():
+                f.write(f"From: {id_to_address[u]}\n")
+                f.write(f"To: {id_to_address[v]}\n")
+                f.write(f"Token: {id_to_address[token]}\n")
+                f.write(f"Amount: {flow}\n")
+                f.write("-------------------\n")
+    
+    print(f"Transaction information has been written to {filename}")
 
 def run_mode(graph_manager: GraphManager):
     algorithms = {
@@ -69,11 +94,12 @@ def run_mode(graph_manager: GraphManager):
             start_time = time.time()
             flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
             end_time = time.time()
+            execution_time = end_time - start_time
 
             signal.alarm(0)  # Cancel the alarm
 
             print(f"\nAlgorithm: {algo_name}")
-            print(f"Execution time: {end_time - start_time:.4f} seconds")
+            print(f"Execution time: {execution_time:.4f} seconds")
             print(f"Flow from {source} to {sink}: {flow_value}")
             if requested_flow is not None:
                 print(f"Requested flow: {requested_flow}")
@@ -81,8 +107,14 @@ def run_mode(graph_manager: GraphManager):
                     print("Note: Achieved flow is less than requested flow.")
 
             output_dir = 'output'
+            os.makedirs(output_dir, exist_ok=True)
             graph_manager.visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)
             print(f"\nVisualization saved in the '{output_dir}' directory.")
+
+            # Write transaction information to file
+            write_transaction_info(flow_value, execution_time, simplified_paths, simplified_edge_flows, 
+                                   graph_manager.data_ingestion.id_to_address, output_dir)
+
         except TimeoutError:
             print("Flow computation timed out after 5 minutes.")
         except Exception as e:
@@ -93,16 +125,16 @@ def run_mode(graph_manager: GraphManager):
 
 def benchmark_mode(graph_manager: GraphManager):
     algorithms = [
-        ('Default (Preflow Push)', preflow_push if isinstance(graph_manager.graph, nx.DiGraph) else gt_push_relabel),
-        ('Edmonds-Karp', edmonds_karp if isinstance(graph_manager.graph, nx.DiGraph) else gt_edmonds_karp),
-        ('Shortest Augmenting Path', shortest_augmenting_path if isinstance(graph_manager.graph, nx.DiGraph) else None),
-        ('Boykov-Kolmogorov', boykov_kolmogorov if isinstance(graph_manager.graph, nx.DiGraph) else gt_boykov_kolmogorov),
-        ('Dinitz', dinitz if isinstance(graph_manager.graph, nx.DiGraph) else None),
+        ('Default (Preflow Push)', preflow_push if isinstance(graph_manager.graph, NetworkXGraph) else gt_push_relabel),
+        ('Edmonds-Karp', edmonds_karp if isinstance(graph_manager.graph, NetworkXGraph) else gt_edmonds_karp),
+        ('Shortest Augmenting Path', shortest_augmenting_path if isinstance(graph_manager.graph, NetworkXGraph) else None),
+        ('Boykov-Kolmogorov', boykov_kolmogorov if isinstance(graph_manager.graph, NetworkXGraph) else gt_boykov_kolmogorov),
+        ('Dinitz', dinitz if isinstance(graph_manager.graph, NetworkXGraph) else None),
     ]
 
     results = []
 
-    print(f"\nNode information:\n{get_node_info(graph_manager.graph)}")
+    print(f"\nNode information:\n{graph_manager.get_node_info()}")
 
     requested_flow = input("Enter requested flow value for all pairs (press Enter for max flow): ")
     requested_flow = requested_flow if requested_flow else None
@@ -114,7 +146,10 @@ def benchmark_mode(graph_manager: GraphManager):
         print("Invalid number entered. Defaulting to 5 pairs.")
         num_pairs = 5
 
-    nodes = [node for node in graph_manager.graph.nodes() if '_' not in str(node)]
+    if isinstance(graph_manager.graph, NetworkXGraph):
+        nodes = [node for node in graph_manager.graph.g_nx.nodes() if '_' not in str(node)]
+    else:  # GraphToolGraph
+        nodes = [str(graph_manager.graph.vertex_id[v]) for v in graph_manager.graph.g_gt.vertices() if '_' not in str(graph_manager.graph.vertex_id[v])]
 
     source_sink_pairs = []
     while len(source_sink_pairs) < num_pairs:
@@ -134,14 +169,9 @@ def benchmark_mode(graph_manager: GraphManager):
                 print(f"Skipping pair ({source_id}, {sink_id}): One or both IDs not found in mapping.")
                 continue
 
-            if isinstance(graph_manager.graph, nx.DiGraph):
-                if source_id not in graph_manager.graph or sink_id not in graph_manager.graph:
-                    print(f"Skipping pair ({source_id}, {sink_id}): One or both nodes not in graph.")
-                    continue
-            else:  # GraphToolGraph
-                if source_id not in graph_manager.graph.vertex_properties["id"].a or sink_id not in graph_manager.graph.vertex_properties["id"].a:
-                    print(f"Skipping pair ({source_id}, {sink_id}): One or both nodes not in graph.")
-                    continue
+            if not graph_manager.graph.has_vertex(source_id) or not graph_manager.graph.has_vertex(sink_id):
+                print(f"Skipping pair ({source_id}, {sink_id}): One or both nodes not in graph.")
+                continue
 
             try:
                 start_time = time.time()
@@ -178,13 +208,13 @@ def main():
     trusts_file = 'data/data-trust.csv'
     balances_file = 'data/data-balance.csv'
     
-    print("Choose graph type:")
+    print("Choose graph library:")
     print("1. NetworkX")
     print("2. graph-tool")
-    graph_type_choice = input("Enter your choice (1 or 2): ")
+    graph_library_choice = input("Enter your choice (1 or 2): ")
     
-    graph_type = 'networkx' if graph_type_choice == '1' else 'graph_tool'
-    graph_manager = GraphManager(trusts_file, balances_file, graph_type)
+    graph_library = 'networkx' if graph_library_choice == '1' else 'graph_tool'
+    graph_manager = GraphManager(trusts_file, balances_file, graph_library)
 
     print("\nGraph information:")
     if isinstance(graph_manager.graph, NetworkXGraph):
