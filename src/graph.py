@@ -55,7 +55,8 @@ class NetworkXGraph(BaseGraph):
         if flow_func is None:
             flow_func = nx.algorithms.flow.preflow_push
 
-        print('Started Flow Computation...')
+        print(f"Computing flow from {source} to {sink}")
+        print(f"Flow function: {flow_func.__name__}")
         
         # Check if sink has incoming edges
         if self.g_nx.in_degree(sink) == 0:
@@ -103,8 +104,7 @@ class NetworkXGraph(BaseGraph):
             print(f"Error in flow computation: {str(e)}")
             raise
 
-        print('Ended Flow Computation...')
-        print('flow value ', flow_value + direct_flow)
+        print('Flow value ', flow_value + direct_flow)
 
         # Combine direct flow with computed flow
         for u, flows in direct_flow_dict.items():
@@ -301,8 +301,6 @@ class GraphToolGraph(BaseGraph):
             flow_func = push_relabel_max_flow
 
         print(f"Computing flow from {source} to {sink}")
-        print(f"Number of vertices: {self.g_gt.num_vertices()}")
-        print(f"Number of edges: {self.g_gt.num_edges()}")
         print(f"Flow function: {flow_func.__name__}")
 
         # Check if sink has incoming edges
