@@ -11,12 +11,132 @@ from networkx.algorithms.flow import (
 from graph_tool.flow import edmonds_karp_max_flow as gt_edmonds_karp, push_relabel_max_flow as gt_push_relabel, boykov_kolmogorov_max_flow as gt_boykov_kolmogorov
 import time
 import os
-from typing import List, Tuple, Callable, Optional
+from typing import List, Tuple, Callable, Optional, Dict, Union
 import pandas as pd
 import random
 import signal
 import os
 from datetime import datetime
+from pathlib import Path
+from dotenv import load_dotenv
+
+def load_postgres_from_env() -> Dict[str, str]:
+    """Load PostgreSQL configuration from environment variables."""
+    required_vars = [
+        'POSTGRES_HOST',
+        'POSTGRES_PORT',
+        'POSTGRES_DB',
+        'POSTGRES_USER',
+        'POSTGRES_PASSWORD'
+    ]
+    
+    # Check if all required variables are present
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+    
+    return {
+        'host': os.getenv('POSTGRES_HOST'),
+        'port': os.getenv('POSTGRES_PORT'),
+        'dbname': os.getenv('POSTGRES_DB'),
+        'user': os.getenv('POSTGRES_USER'),
+        'password': os.getenv('POSTGRES_PASSWORD')
+    }
+
+def get_data_source() -> Union[tuple, Dict[str, str], Tuple[Dict[str, str], str]]:
+    """Get data source configuration from user input."""
+    print("\nChoose data source:")
+    print("1. Local CSV files")
+    print("2. PostgreSQL database (manual configuration)")
+    print("3. PostgreSQL database (from .env file)")
+    print("4. PostgreSQL database (from saved configuration)")
+    
+    choice = input("Enter your choice (1-4): ")
+
+    if choice == "1":
+        trusts_file = input("Enter path to trusts CSV file [default: data/data-trust.csv]: ").strip()
+        balances_file = input("Enter path to balances CSV file [default: data/data-balance.csv]: ").strip()
+        
+        # Use default paths if none provided
+        if not trusts_file:
+            trusts_file = 'data/data-trust.csv'
+        if not balances_file:
+            balances_file = 'data/data-balance.csv'
+            
+        # Verify files exist
+        if not os.path.exists(trusts_file) or not os.path.exists(balances_file):
+            raise FileNotFoundError("One or both CSV files not found")
+            
+        return (trusts_file, balances_file)
+    
+    # For PostgreSQL options, also get queries directory
+   # queries_dir = input("\nEnter path to SQL queries directory [default: queries]: ").strip() or "queries"
+   # if not os.path.exists(queries_dir):
+   #     raise FileNotFoundError(f"Queries directory not found: {queries_dir}")
+    queries_dir = "queries"
+
+    if choice == "2":
+        print("\nEnter PostgreSQL connection details:")
+        db_config = {
+            'host': input("Host [localhost]: ").strip() or 'localhost',
+            'port': input("Port [5432]: ").strip() or '5432',
+            'dbname': input("Database name: ").strip(),
+            'user': input("Username: ").strip(),
+            'password': input("Password: ").strip()
+        }
+        
+        # Ask if user wants to save configuration
+        save_config = input("\nSave this configuration for future use? (y/n): ").lower().strip()
+        if save_config == 'y':
+            save_db_config(db_config)
+            print("Configuration saved.")
+        
+        return (db_config, queries_dir)
+    
+    elif choice == "3":
+        # Load .env file
+       # env_path = input("Enter path to .env file [default: .env]: ").strip() or '.env'
+       # if not os.path.exists(env_path):
+       #     raise FileNotFoundError(f"Environment file not found: {env_path}")
+        env_path='.env'
+        # Load the environment variables
+        load_dotenv(env_path)
+        
+        try:
+            return (load_postgres_from_env(), queries_dir)
+        except ValueError as e:
+            raise ValueError(f"Error loading from .env file: {str(e)}")
+    
+    elif choice == "4":
+        config = load_db_config()
+        if not config:
+            raise ValueError("No saved configuration found. Please use another option.")
+        print("Using saved PostgreSQL configuration.")
+        return (config, queries_dir)
+    
+    else:
+        raise ValueError("Invalid choice")
+
+def load_db_config() -> Optional[Dict[str, str]]:
+    """Load database configuration from file if it exists."""
+    config_file = Path.home() / '.pyfinder' / 'config.ini'
+    if config_file.exists():
+        config = configparser.ConfigParser()
+        config.read(config_file)
+        if 'postgresql' in config:
+            return dict(config['postgresql'])
+    return None
+
+def save_db_config(db_config: Dict[str, str]):
+    """Save database configuration to file."""
+    config = configparser.ConfigParser()
+    config['postgresql'] = db_config
+    
+    config_dir = Path.home() / '.pyfinder'
+    config_dir.mkdir(parents=True, exist_ok=True)
+    
+    with open(config_dir / 'config.ini', 'w') as configfile:
+        config.write(configfile)
 
 def timeout_handler(signum, frame):
     raise TimeoutError("Flow computation timed out")
@@ -111,9 +231,8 @@ def run_mode(graph_manager: GraphManager):
             graph_manager.visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)
             print(f"\nVisualization saved in the '{output_dir}' directory.")
 
-            # Write transaction information to file
             write_transaction_info(flow_value, execution_time, simplified_paths, simplified_edge_flows, 
-                                   graph_manager.data_ingestion.id_to_address, output_dir)
+                                 graph_manager.data_ingestion.id_to_address, output_dir)
 
         except TimeoutError:
             print("Flow computation timed out after 5 minutes.")
@@ -289,23 +408,29 @@ def compare_libraries_mode(networkx_graph_manager: GraphManager, graphtool_graph
         print("No valid results to display. Please check your source-sink pairs and graph structure.")
 
 def main():
-    trusts_file = 'data/data-trust.csv'
-    balances_file = 'data/data-balance.csv'
+    try:
+        data_source = get_data_source()
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {str(e)}")
+        return
 
-    print("Choose a mode:")
-    print("1. Run Mode")
-    print("2. Benchmark Mode")
-    print("3. Compare Libraries Mode")
-    mode = input("Enter your choice (1, 2, or 3): ")
-
-    if mode in ['1', '2']:
-        print("\nChoose graph library:")
-        print("1. NetworkX")
-        print("2. graph-tool")
-        graph_library_choice = input("Enter your choice (1 or 2): ")
-        
-        graph_library = 'networkx' if graph_library_choice == '1' else 'graph_tool'
-        graph_manager = GraphManager(trusts_file, balances_file, graph_library)
+    print("\nInitializing graph...")
+    
+    print("Choose graph library:")
+    print("1. NetworkX")
+    print("2. graph-tool")
+    graph_library_choice = input("Enter your choice (1 or 2): ")
+    
+    graph_library = 'networkx' if graph_library_choice == '1' else 'graph_tool'
+    
+    try:
+        # If data_source is a dictionary, it's PostgreSQL config
+        if isinstance(data_source, tuple) and isinstance(data_source[0], dict):
+            db_config, queries_dir = data_source
+            graph_manager = GraphManager((db_config, queries_dir), graph_library)
+        else:
+            # Otherwise it's CSV files
+            graph_manager = GraphManager(data_source, graph_library)
 
         print("\nGraph information:")
         if isinstance(graph_manager.graph, NetworkXGraph):
@@ -315,17 +440,24 @@ def main():
             print(f"Number of nodes in graph: {graph_manager.graph.g_gt.num_vertices()}")
             print(f"Number of edges in graph: {graph_manager.graph.g_gt.num_edges()}")
 
+        mode = input("\nChoose mode (1: Run, 2: Benchmark, 3: Compare Libraries): ")
+
         if mode == '1':
             run_mode(graph_manager)
         elif mode == '2':
             benchmark_mode(graph_manager)
-    elif mode == '3':
-        print("Loading both NetworkX and graph-tool graphs...")
-        networkx_graph_manager = GraphManager(trusts_file, balances_file, 'networkx')
-        graphtool_graph_manager = GraphManager(trusts_file, balances_file, 'graph_tool')
-        compare_libraries_mode(networkx_graph_manager, graphtool_graph_manager)
-    else:
-        print("Invalid mode selection. Exiting.")
+        elif mode == '3':
+            networkx_graph_manager = GraphManager(data_source, 'networkx')
+            graphtool_graph_manager = GraphManager(data_source, 'graph_tool')
+            compare_libraries_mode(networkx_graph_manager, graphtool_graph_manager)
+        else:
+            print("Invalid mode selection. Exiting.")
+            
+    except Exception as e:
+        print(f"Error initializing graph manager: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return
 
 if __name__ == "__main__":
     main()

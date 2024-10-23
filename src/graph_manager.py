@@ -1,25 +1,65 @@
 import pandas as pd
-from typing import Callable, Optional
+from typing import Dict, Union, Tuple
 import networkx as nx
-from .data_ingestion import DataIngestion
+from .data_ingestion import DataIngestion, PostgresDataIngestion
 from .graph import NetworkXGraph, GraphToolGraph, GraphCreator
 from .flow_analysis import NetworkFlowAnalysis
 from .visualization import Visualization
 import random
 
 class GraphManager:
-    def __init__(self, trusts_file: str, balances_file: str, graph_type: str = 'networkx'):
-        df_trusts = pd.read_csv(trusts_file)
-        df_balances = pd.read_csv(balances_file)
+    def __init__(self, data_source: Union[Tuple[str, str], Tuple[Dict[str, str], str]], graph_type: str = 'networkx'):
+        """
+        Initialize the GraphManager with either CSV files or PostgreSQL connection.
         
-        self.data_ingestion = DataIngestion(df_trusts, df_balances)
+        Args:
+            data_source: Either:
+                - Tuple[str, str]: (trusts_file_path, balances_file_path) for CSV ingestion
+                - Tuple[Dict[str, str], str]: (db_config, queries_dir) for PostgreSQL ingestion
+            graph_type: Type of graph to create ('networkx' or 'graph_tool')
+        """
+        self.data_ingestion = self._initialize_data_ingestion(data_source)
         
-        self.graph = GraphCreator.create_graph(graph_type, self.data_ingestion.edges, self.data_ingestion.capacities, self.data_ingestion.tokens)
+        self.graph = GraphCreator.create_graph(
+            graph_type, 
+            self.data_ingestion.edges, 
+            self.data_ingestion.capacities, 
+            self.data_ingestion.tokens
+        )
         
         self.flow_analysis = NetworkFlowAnalysis(self.graph)
         self.visualization = Visualization()
 
-    def analyze_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, cutoff: Optional[float] = None):
+    def _initialize_data_ingestion(self, data_source):
+        """
+        Initialize the appropriate data ingestion based on the data source type.
+        """
+        if not isinstance(data_source, tuple):
+            raise ValueError("data_source must be a tuple")
+
+        if len(data_source) != 2:
+            raise ValueError("data_source must have exactly 2 elements")
+
+        # Check if it's PostgreSQL configuration
+        if isinstance(data_source[0], dict):
+            db_config, queries_dir = data_source
+            return PostgresDataIngestion(db_config, queries_dir)
+        
+        # Otherwise, assume it's CSV files
+        elif isinstance(data_source[0], str) and isinstance(data_source[1], str):
+            trusts_file, balances_file = data_source
+            try:
+                df_trusts = pd.read_csv(trusts_file)
+                df_balances = pd.read_csv(balances_file)
+                return DataIngestion(df_trusts, df_balances)
+            except Exception as e:
+                raise ValueError(f"Error reading CSV files: {str(e)}")
+        
+        else:
+            raise ValueError("Invalid data source format")
+
+    def analyze_flow(self, source: str, sink: str, flow_func=None, cutoff: str = None):
+        """Analyze flow between source and sink nodes."""
         source_id = self.data_ingestion.get_id_for_address(source)
         sink_id = self.data_ingestion.get_id_for_address(sink)
         
@@ -32,6 +72,7 @@ class GraphManager:
         return self.flow_analysis.analyze_flow(source_id, sink_id, flow_func, cutoff)
 
     def visualize_flow(self, simplified_paths, simplified_edge_flows, original_edge_flows, output_dir: str):
+        """Visualize flow paths."""
         self.visualization.ensure_output_directory(output_dir)
         
         self.visualization.plot_flow_paths(
@@ -50,6 +91,7 @@ class GraphManager:
         )
 
     def get_node_info(self):
+        """Get information about nodes in the graph."""
         if isinstance(self.graph, NetworkXGraph):
             nodes = list(self.graph.g_nx.nodes())
         else:  # GraphToolGraph
