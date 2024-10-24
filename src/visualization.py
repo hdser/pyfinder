@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from typing import List, Tuple, Dict, Union
 import os
+import io
 from collections import defaultdict
 
 class Visualization:
@@ -35,6 +36,7 @@ class Visualization:
         ax.text(0, 1, mapping_text, verticalalignment='top', fontsize=8, fontfamily='monospace')
         ax.axis('off')
 
+    @staticmethod
     @staticmethod
     def custom_flow_layout(G, source, sink, horizontal_spacing=10, vertical_spacing=2):
         def bfs_levels(G, source):
@@ -69,6 +71,8 @@ class Visualization:
                 pos[node] = (x, y)
 
         return pos
+
+    
 
     @staticmethod
     def plot_flow_paths(g: Union[nx.DiGraph, 'GraphToolGraph'], paths: List[Tuple[List[str], List[str], float]],
