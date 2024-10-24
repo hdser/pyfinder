@@ -1,4 +1,3 @@
-# dashboard/visualization/visualization_component.py
 import panel as pn
 import param
 import numpy as np
@@ -7,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from collections import defaultdict
 import io
-from dashboard.base_component import BaseComponent
+from .base_component import BaseComponent
 from src.visualization import Visualization as SrcVisualization
 
 class VisualizationComponent(BaseComponent):

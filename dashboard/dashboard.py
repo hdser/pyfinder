@@ -7,13 +7,14 @@ from collections import defaultdict
 import panel as pn
 import os
 import pandas as pd
-from dashboard.data_source import (
-    CSVDataSourceComponent,
+from .base import DataSourceComponent
+from .csv_component import CSVDataSourceComponent
+from .postgres_component import (
     PostgresManualComponent,
     PostgresEnvComponent
 )
-from dashboard.analysis import AnalysisComponent
-from dashboard.visualization import VisualizationComponent
+from .analysis_component import AnalysisComponent 
+from .visualization_component import VisualizationComponent
 from src.graph_manager import GraphManager
 from src.graph import NetworkXGraph, GraphToolGraph
 import time

@@ -3,7 +3,7 @@ import param
 import os
 import io
 import pandas as pd
-from dashboard.data_source.base import DataSourceComponent
+from .base import DataSourceComponent
 
 class CSVDataSourceComponent(DataSourceComponent):
     # Class parameters

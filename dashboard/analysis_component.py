@@ -12,7 +12,7 @@ from graph_tool.flow import (
     push_relabel_max_flow as gt_push_relabel,
     boykov_kolmogorov_max_flow as gt_boykov_kolmogorov,
 )
-from dashboard.base_component import BaseComponent
+from .base_component import BaseComponent
 
 class AnalysisComponent(BaseComponent):
     # Graph library selection

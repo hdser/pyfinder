@@ -1,7 +1,7 @@
 import param
 import panel as pn
 from abc import abstractmethod
-from dashboard.base_component import BaseComponent
+from .base_component import BaseComponent
 
 class DataSourceComponent(BaseComponent):
     """Abstract base class for data source components."""

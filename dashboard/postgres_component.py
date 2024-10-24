@@ -2,7 +2,7 @@ import panel as pn
 import param
 from dotenv import load_dotenv
 import os
-from dashboard.data_source.base import DataSourceComponent
+from .base import DataSourceComponent
 
 class PostgresManualComponent(DataSourceComponent):
     pg_host = param.String(default="localhost")
