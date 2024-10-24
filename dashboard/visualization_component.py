@@ -67,7 +67,7 @@ class VisualizationComponent(BaseComponent):
         try:
             flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = results
             
-            # Update statistics
+            # Update statistics and transactions
             self._update_stats(
                 flow_value=flow_value,
                 simplified_paths=simplified_paths,
@@ -76,8 +76,6 @@ class VisualizationComponent(BaseComponent):
                 computation_time=computation_time,
                 algorithm=algorithm
             )
-
-            # Update transactions
             self._update_transactions(simplified_edge_flows, graph_manager)
 
             try:
@@ -85,34 +83,32 @@ class VisualizationComponent(BaseComponent):
                 # Create subgraph with only the nodes and edges in the flow
                 flow_subgraph = self._create_flow_subgraph(graph_manager.graph.g_nx, original_edge_flows)
 
-                # Create full graph plot using the flow subgraph
+                # Create full graph visualization
                 full_plot = self.interactive_viz.create_bokeh_network(
                     flow_subgraph,
                     original_edge_flows,
-                    "Flow Paths",
+                    graph_manager.data_ingestion.id_to_address,
+                    "Full Flow Network",
                     simplified=False
                 )
-                full_plot.sizing_mode = 'stretch_both'
                 self.full_graph_pane.object = full_plot
-                print("Full graph plot set")
 
-                print("Creating simplified graph...")
+                print("Creating simplified graph visualization...")
                 # Create simplified graph
                 simplified_graph = nx.DiGraph()
                 for (u, v), token_flows in simplified_edge_flows.items():
                     for token, flow in token_flows.items():
                         simplified_graph.add_edge(u, v, label=token)
 
-                # Create simplified plot
+                # Create simplified graph visualization
                 simplified_plot = self.interactive_viz.create_bokeh_network(
                     simplified_graph,
                     simplified_edge_flows,
-                    "Simplified Flow Paths",
+                    graph_manager.data_ingestion.id_to_address,
+                    "Simplified Flow Network",
                     simplified=True
                 )
-                simplified_plot.sizing_mode = 'stretch_both'
                 self.simplified_graph_pane.object = simplified_plot
-                print("Simplified plot set")
 
             except Exception as e:
                 print(f"Error creating visualization: {str(e)}")
