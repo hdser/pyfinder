@@ -29,6 +29,8 @@ class InteractiveVisualization:
             ("Token", "@token"),
             ("Flow", "@flow{0,0} mCRC")
         ]
+        self.max_edges = 100
+        self.max_labels = 50
 
     def create_bokeh_network(
         self, 
@@ -64,36 +66,10 @@ class InteractiveVisualization:
             pos = self._hierarchical_layout(G, source, sink)
 
             # Prepare node data
-            node_data = {
-                'x': [], 'y': [], 
-                'node': [], 
-                'type': [],
-                'address': [],
-                'color': [],
-                'size': []
-            }
-
-            for node in G.nodes():
-                x, y = pos[node]
-                node_data['x'].append(x)
-                node_data['y'].append(y)
-                node_data['node'].append(str(node))
-                
-                if '_' in str(node):
-                    node_data['type'].append('intermediate')
-                    node_data['color'].append('red')
-                    node_data['size'].append(10)
-                else:
-                    node_data['type'].append('regular')
-                    node_data['color'].append('lightblue')
-                    node_data['size'].append(15)
-                
-                address = id_to_address.get(str(node), "Unknown")
-                node_data['address'].append(f"{address[:6]}...{address[-4:]}")
-
+            node_data = self._prepare_node_data(G, pos, id_to_address)
             node_source = ColumnDataSource(node_data)
 
-            # Draw nodes using scatter instead of circle
+            # Draw nodes
             nodes = plot.scatter(
                 'x', 'y',
                 source=node_source,
@@ -104,64 +80,38 @@ class InteractiveVisualization:
                 marker='circle'
             )
 
-            # Add node labels
-            labels = LabelSet(
-                x='x', y='y',
-                text='node',
-                source=node_source,
-                x_offset=5,
-                y_offset=5,
-                text_font_size='8pt',
-                background_fill_color='white',
-                background_fill_alpha=0.7
-            )
-            plot.add_layout(labels)
+            # Add node labels (limited)
+            if len(node_data['x']) <= self.max_labels:
+                labels = LabelSet(
+                    x='x', y='y',
+                    text='node',
+                    source=node_source,
+                    x_offset=5,
+                    y_offset=5,
+                    text_font_size='8pt',
+                    background_fill_color='white',
+                    background_fill_alpha=0.7
+                )
+                plot.add_layout(labels)
 
+            # Prepare edge data based on whether it's simplified or full graph
             if simplified:
                 edge_data = self._prepare_multiedge_data(G, pos, edge_flows, id_to_address)
             else:
-                edge_data = self._prepare_edge_data(G, pos, edge_flows, id_to_address)
+                if hasattr(G, 'g_gt'):
+                    edge_data = self._prepare_graphtool_edge_data(G, pos, edge_flows, id_to_address)
+                else:
+                    edge_data = self._prepare_edge_data(G, pos, edge_flows, id_to_address)
+
+            # Limit the number of edges if necessary
+            if len(edge_data['xs']) > self.max_edges:
+                print(f"Limiting visualization to {self.max_edges} edges (out of {len(edge_data['xs'])})")
+                for key in edge_data:
+                    edge_data[key] = edge_data[key][:self.max_edges]
 
             edge_source = ColumnDataSource(edge_data)
 
-            # Draw arrows at the end of edges
-            arrow_ends = []
-            for xs, ys, line_width in zip(edge_data['xs'], edge_data['ys'], edge_data['line_width']):
-                # Get the last two points of each edge
-                x2, x1 = xs[-2:]
-                y2, y1 = ys[-2:]
-                
-                # Calculate the arrow angle
-                angle = np.arctan2(y1 - y2, x1 - x2)
-                
-                # Create arrow head
-                arrow_ends.append({
-                    'x_start': [xs[-2]],
-                    'y_start': [ys[-2]],
-                    'x_end': [xs[-1]],
-                    'y_end': [ys[-1]],
-                    'angle': [angle],
-                    'line_width': [line_width]
-                })
-
-            for arrow in arrow_ends:
-                arrow_source = ColumnDataSource(arrow)
-                plot.add_layout(Arrow(
-                    end=VeeHead(
-                        size=8,
-                        fill_color='gray',  # Set the fill color to gray
-                        line_color='gray'   # Set the line color to gray
-                    ),
-                    x_start='x_start',
-                    y_start='y_start',
-                    x_end='x_end',
-                    y_end='y_end',
-                    source=arrow_source,
-                    line_color='gray',      # Set the arrow shaft color to gray
-                    line_alpha=0.6          # Match the line alpha with the edges
-                ))
-
-            # Draw edge curves
+            # Draw edges
             edges = plot.multi_line(
                 xs='xs',
                 ys='ys',
@@ -171,31 +121,13 @@ class InteractiveVisualization:
                 source=edge_source
             )
 
-            # Add edge labels
-            for i, (x, y, label) in enumerate(zip(
-                edge_data['label_x'],
-                edge_data['label_y'],
-                edge_data['label_text']
-            )):
-                edge_label = Label(
-                    x=x, y=y,
-                    text=label,
-                    text_font_size='8pt',
-                    background_fill_color='white',
-                    background_fill_alpha=0.7,
-                    text_align='center'
-                )
-                plot.add_layout(edge_label)
+            # Add arrows and labels in batches to prevent rendering issues
+            if len(edge_data['xs']) <= self.max_edges:
+                self._add_arrows_and_labels(plot, edge_data)
 
             # Add hover tools
-            node_hover = HoverTool(
-                renderers=[nodes],
-                tooltips=self.node_tooltips
-            )
-            edge_hover = HoverTool(
-                renderers=[edges],
-                tooltips=self.edge_tooltips
-            )
+            node_hover = HoverTool(renderers=[nodes], tooltips=self.node_tooltips)
+            edge_hover = HoverTool(renderers=[edges], tooltips=self.edge_tooltips)
             plot.add_tools(node_hover, edge_hover)
 
             # Configure legend
@@ -209,13 +141,142 @@ class InteractiveVisualization:
             print(f"Error creating Bokeh network: {str(e)}")
             import traceback
             traceback.print_exc()
-            error_plot = figure(
-                title="Error",
-                sizing_mode='stretch_both',
-                min_height=400
-            )
+            error_plot = figure(title="Error", sizing_mode='stretch_both', min_height=400)
             error_plot.text(0, 0, [f"Error: {str(e)}"], text_color="red")
             return error_plot
+
+    def _prepare_node_data(self, G, pos, id_to_address):
+        """Prepare node data for visualization."""
+        node_data = {
+            'x': [], 'y': [], 
+            'node': [], 
+            'type': [],
+            'address': [],
+            'color': [],
+            'size': []
+        }
+
+        for node in G.nodes():
+            x, y = pos[node]
+            node_data['x'].append(x)
+            node_data['y'].append(y)
+            node_data['node'].append(str(node))
+            
+            if '_' in str(node):
+                node_data['type'].append('intermediate')
+                node_data['color'].append('red')
+                node_data['size'].append(10)
+            else:
+                node_data['type'].append('regular')
+                node_data['color'].append('lightblue')
+                node_data['size'].append(15)
+            
+            address = id_to_address.get(str(node), "Unknown")
+            node_data['address'].append(f"{address[:6]}...{address[-4:]}")
+
+        return node_data
+
+    def _add_arrows_and_labels(self, plot, edge_data):
+        """Add arrows and labels to the plot in batches."""
+        batch_size = 20  # Process 20 edges at a time
+        
+        for i in range(0, len(edge_data['xs']), batch_size):
+            batch_end = min(i + batch_size, len(edge_data['xs']))
+            
+            # Add arrows for this batch
+            for j in range(i, batch_end):
+                xs = edge_data['xs'][j]
+                ys = edge_data['ys'][j]
+                line_width = edge_data['line_width'][j]
+                
+                # Get the last two points of the edge
+                x2, x1 = xs[-2:]
+                y2, y1 = ys[-2:]
+                
+                # Calculate the arrow angle
+                angle = np.arctan2(y1 - y2, x1 - x2)
+                
+                arrow_source = ColumnDataSource({
+                    'x_start': [xs[-2]],
+                    'y_start': [ys[-2]],
+                    'x_end': [xs[-1]],
+                    'y_end': [ys[-1]]
+                })
+
+                plot.add_layout(Arrow(
+                    end=VeeHead(size=8, fill_color='gray', line_color='gray'),
+                    x_start='x_start',
+                    y_start='y_start',
+                    x_end='x_end',
+                    y_end='y_end',
+                    source=arrow_source,
+                    line_color='gray',
+                    line_alpha=0.6
+                ))
+
+            # Add labels for this batch
+            for j in range(i, batch_end):
+                label = Label(
+                    x=edge_data['label_x'][j],
+                    y=edge_data['label_y'][j],
+                    text=edge_data['label_text'][j],
+                    text_font_size='8pt',
+                    background_fill_color='white',
+                    background_fill_alpha=0.7,
+                    text_align='center'
+                )
+                plot.add_layout(label)
+
+    def _prepare_graphtool_edge_data(self, G, pos, edge_flows, id_to_address):
+        """Special edge data preparation for graph-tool graphs."""
+        edge_data = {
+            'xs': [], 'ys': [],
+            'from_node': [], 'to_node': [],
+            'token': [], 'flow': [],
+            'line_width': [],
+            'label_x': [], 'label_y': [],
+            'label_text': []
+        }
+
+        for (u, v), flow in edge_flows.items():
+            if flow > 0:
+                x0, y0 = pos[u]
+                x1, y1 = pos[v]
+                
+                # Get token from the original graph
+                token = None
+                if hasattr(G, 'g_gt'):
+                    u_vertex = G.id_to_vertex.get(u)
+                    v_vertex = G.id_to_vertex.get(v)
+                    if u_vertex is not None and v_vertex is not None:
+                        edge = G.g_gt.edge(u_vertex, v_vertex)
+                        if edge is not None:
+                            token = G.token[edge]
+
+                # Calculate curved path
+                mid_x = (x0 + x1) / 2
+                mid_y = (y0 + y1) / 2
+                
+                # Generate curve points
+                t = np.linspace(0, 1, 50)
+                xs = (1-t)**2 * x0 + 2*(1-t)*t * mid_x + t**2 * x1
+                ys = (1-t)**2 * y0 + 2*(1-t)*t * mid_y + t**2 * y1
+
+                token_address = id_to_address.get(token, token if token else "Unknown")
+                label_text = f"Flow: {int(flow):,}\nToken: {token_address[:6]}...{token_address[-4:]}"
+
+                edge_data['xs'].append(list(xs))
+                edge_data['ys'].append(list(ys))
+                edge_data['from_node'].append(u)
+                edge_data['to_node'].append(v)
+                edge_data['token'].append(token if token else "Unknown")
+                edge_data['flow'].append(flow)
+                edge_data['line_width'].append(1 + np.log1p(float(flow)) * 0.5)
+                edge_data['label_x'].append(mid_x)
+                edge_data['label_y'].append(mid_y)
+                edge_data['label_text'].append(label_text)
+
+        return edge_data
         
     def _hierarchical_layout(self, G: nx.DiGraph, source: str, sink: str,
                            horizontal_spacing: float = 5.0,

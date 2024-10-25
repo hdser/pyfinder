@@ -16,8 +16,7 @@ from .base_component import BaseComponent
 
 class AnalysisComponent(BaseComponent):
     # Graph library selection
-    graph_library = param.Selector(default="NetworkX", 
-                                 objects=["NetworkX", "graph-tool"])
+    graph_library = param.Selector(default="NetworkX", objects=["NetworkX", "graph-tool"])
 
     # Analysis parameters (initially disabled)
     source = param.String(default="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0")
@@ -82,11 +81,13 @@ class AnalysisComponent(BaseComponent):
             placeholder="Leave empty for max flow",
             disabled=True
         )
-        
+
+        # Update algorithm options based on library
+        algorithms = self.get_algorithm_list()
         self.algorithm_select = pn.widgets.Select(
             name="Algorithm",
-            options=self.get_algorithm_list(),
-            value=self.algorithm,
+            options=algorithms,
+            value=algorithms[0],
             width=200,
             disabled=True
         )
@@ -117,23 +118,13 @@ class AnalysisComponent(BaseComponent):
 
     def _update_algorithm_list(self, event):
         """Update available algorithms based on selected graph library."""
-        if event.new == 'NetworkX':
-            self.param.algorithm.objects = [
-                "Default (Preflow Push)",
-                "Edmonds-Karp",
-                "Shortest Augmenting Path",
-                "Boykov-Kolmogorov",
-                "Dinitz"
-            ]
-        else:  # graph-tool
-            self.param.algorithm.objects = [
-                "Default (Push-Relabel)",
-                "Edmonds-Karp",
-                "Boykov-Kolmogorov"
-            ]
-        self.algorithm = self.param.algorithm.objects[0]
-        self.algorithm_select.options = self.param.algorithm.objects
-        self.algorithm_select.value = self.algorithm
+        algorithms = self.get_algorithm_list()
+        self.param.algorithm.objects = algorithms
+        self.algorithm = algorithms[0]
+        if hasattr(self, 'algorithm_select'):
+            self.algorithm_select.options = algorithms
+            self.algorithm_select.value = algorithms[0]
+
 
     def get_algorithm_list(self):
         """Get list of algorithms based on selected graph library."""
@@ -153,7 +144,7 @@ class AnalysisComponent(BaseComponent):
             ]
 
     def get_algorithm_func(self):
-        """Get the selected algorithm function."""
+        """Get the algorithm function based on selected algorithm."""
         if self.graph_library == 'NetworkX':
             algorithm_map = {
                 "Default (Preflow Push)": preflow_push,

@@ -98,6 +98,29 @@ class NetworkFlowDashboard:
             # Enable analysis inputs
             self.analysis.enable_analysis_inputs(True)
             
+            # Get graph statistics
+            if isinstance(self.graph_manager.graph, NetworkXGraph):
+                num_nodes = self.graph_manager.graph.g_nx.number_of_nodes()
+                num_edges = self.graph_manager.graph.g_nx.number_of_edges()
+            else:  # GraphToolGraph
+                num_nodes = self.graph_manager.graph.g_gt.num_vertices()
+                num_edges = self.graph_manager.graph.g_gt.num_edges()
+            
+            # Update visualization with initial graph information
+            self.visualization.stats_pane.object = f"""
+            # Graph Information
+            
+            ## Configuration
+            - Graph Library: {self.analysis.graph_library}
+            - Data Source: {self.tab_names[self.data_source_tabs.active]}
+            
+            ## Statistics
+            - Number of Vertices: {num_nodes:,}
+            - Number of Edges: {num_edges:,}
+            
+            Ready to run analysis. Please configure source and sink addresses above.
+            """
+            
         except Exception as e:
             error_msg = f"Initialization Error: {str(e)}"
             print(f"Detailed error: {str(e)}")  # Debug print
@@ -105,6 +128,18 @@ class NetworkFlowDashboard:
             self.analysis.init_status.styles = {'color': 'red'}
             self.graph_manager = None
             self.analysis.enable_analysis_inputs(False)
+            
+            # Clear statistics on error
+            self.visualization.stats_pane.object = f"""
+            # Initialization Failed
+            
+            An error occurred while initializing the graph:
+            ```
+            {str(e)}
+            ```
+            
+            Please check your configuration and try again.
+            """
 
     def _run_analysis(self, event):
         """Run the flow analysis with current configuration."""
@@ -200,7 +235,7 @@ class NetworkFlowDashboard:
 
         # Create template
         template = pn.template.MaterialTemplate(
-            title="pyFinder Flow Analysis Dashboard",
+            title="pyFinder: Path Finder Dashboard",
             header_background="#007BFF",
             header_color="#ffffff",
             sidebar=self._create_sidebar(),

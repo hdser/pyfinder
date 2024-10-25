@@ -66,7 +66,7 @@ class VisualizationComponent(BaseComponent):
 
         try:
             flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = results
-            
+
             # Update statistics and transactions
             self._update_stats(
                 flow_value=flow_value,
@@ -81,7 +81,7 @@ class VisualizationComponent(BaseComponent):
             try:
                 print("Creating full graph visualization...")
                 # Create subgraph with only the nodes and edges in the flow
-                flow_subgraph = self._create_flow_subgraph(graph_manager.graph.g_nx, original_edge_flows)
+                flow_subgraph = self._create_flow_subgraph(graph_manager.graph, original_edge_flows)
 
                 # Create full graph visualization
                 full_plot = self.interactive_viz.create_bokeh_network(
@@ -122,10 +122,31 @@ class VisualizationComponent(BaseComponent):
             traceback.print_exc()
             self._show_error(str(e))
 
-    def _create_flow_subgraph(self, G_full, edge_flows):
+    def _create_flow_subgraph(self, graph, edge_flows):
         """Create a subgraph containing only the edges and nodes involved in the flow."""
-        edges_in_flow = list(edge_flows.keys())
-        flow_subgraph = G_full.edge_subgraph(edges_in_flow).copy()
+        # Create a new NetworkX DiGraph for visualization regardless of input graph type
+        flow_subgraph = nx.DiGraph()
+        
+        # Add edges and their data from the flow
+        for (u, v), flow in edge_flows.items():
+            if flow > 0:
+                # Get edge data based on graph type
+                if hasattr(graph, 'g_nx'):  # NetworkX graph
+                    if graph.has_edge(u, v):
+                        edge_data = graph.get_edge_data(u, v)
+                        token = edge_data.get('label')
+                    else:
+                        token = None
+                else:  # graph-tool graph
+                    if graph.has_edge(u, v):
+                        edge_data = graph.get_edge_data(u, v)
+                        token = edge_data.get('label')
+                    else:
+                        token = None
+                        
+                # Add edge to subgraph
+                flow_subgraph.add_edge(u, v, label=token)
+
         return flow_subgraph
 
     def _update_stats(self, flow_value, simplified_paths, simplified_edge_flows, 
@@ -172,13 +193,16 @@ class VisualizationComponent(BaseComponent):
                        border-radius: 5px;'>
                 <div style='display: grid; grid-template-columns: 100px auto;'>
                     <div><strong>From:</strong></div>
-                    <div>{u_address[:6]}...{u_address[-4:]}</div>
+                    <div>{u_address} (id: {u})</div>
+                    
                     <div><strong>To:</strong></div>
-                    <div>{v_address[:6]}...{v_address[-4:]}</div>
+                    <div>{v_address}  (id: {v})</div>
+                    
                     <div><strong>Flow:</strong></div>
-                    <div>{flow:,} mCRC</div>
+                    <div>{flow:} mCRC</div>
                     <div><strong>Token:</strong></div>
-                    <div>{token_address[:6]}...{token_address[-4:]}</div>
+                    <div>{token_address}  (id: {token})</div>
+                   
                 </div>
             </li>"""
         
