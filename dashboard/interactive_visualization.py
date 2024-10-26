@@ -96,12 +96,12 @@ class InteractiveVisualization:
 
             # Prepare edge data based on whether it's simplified or full graph
             if simplified:
-                edge_data = self._prepare_multiedge_data(G, pos, edge_flows, id_to_address)
+                edge_data = self._prepare_multiedge_data(G, pos, edge_flows)
             else:
                 if hasattr(G, 'g_gt'):
-                    edge_data = self._prepare_graphtool_edge_data(G, pos, edge_flows, id_to_address)
+                    edge_data = self._prepare_graphtool_edge_data(G, pos, edge_flows)
                 else:
-                    edge_data = self._prepare_edge_data(G, pos, edge_flows, id_to_address)
+                    edge_data = self._prepare_edge_data(G, pos, edge_flows)
 
             # Limit the number of edges if necessary
             if len(edge_data['xs']) > self.max_edges:
@@ -166,13 +166,14 @@ class InteractiveVisualization:
                 node_data['type'].append('intermediate')
                 node_data['color'].append('red')
                 node_data['size'].append(10)
+                node_data['address'].append('---')
             else:
                 node_data['type'].append('regular')
                 node_data['color'].append('lightblue')
                 node_data['size'].append(15)
             
-            address = id_to_address.get(str(node), "Unknown")
-            node_data['address'].append(f"{address[:6]}...{address[-4:]}")
+                address = id_to_address.get(str(node), "Unknown")
+                node_data['address'].append(f"{address}")
 
         return node_data
 
@@ -227,7 +228,7 @@ class InteractiveVisualization:
                 )
                 plot.add_layout(label)
 
-    def _prepare_graphtool_edge_data(self, G, pos, edge_flows, id_to_address):
+    def _prepare_graphtool_edge_data(self, G, pos, edge_flows):
         """Special edge data preparation for graph-tool graphs."""
         edge_data = {
             'xs': [], 'ys': [],
@@ -262,8 +263,8 @@ class InteractiveVisualization:
                 xs = (1-t)**2 * x0 + 2*(1-t)*t * mid_x + t**2 * x1
                 ys = (1-t)**2 * y0 + 2*(1-t)*t * mid_y + t**2 * y1
 
-                token_address = id_to_address.get(token, token if token else "Unknown")
-                label_text = f"Flow: {int(flow):,}\nToken: {token_address[:6]}...{token_address[-4:]}"
+                
+                label_text = f"Flow: {int(flow):,}\nToken: {token}"
 
                 edge_data['xs'].append(list(xs))
                 edge_data['ys'].append(list(ys))
@@ -312,8 +313,7 @@ class InteractiveVisualization:
         return pos
         
     def _prepare_multiedge_data(self, G: nx.DiGraph, pos: Dict[str, Tuple[float, float]], 
-                               edge_flows: Dict[Tuple[str, str], Dict[str, float]],
-                               id_to_address: Dict[str, str]) -> Dict:
+                               edge_flows: Dict[Tuple[str, str], Dict[str, float]]) -> Dict:
         """Prepare edge data for simplified graph with proper curve calculations for multiedges."""
         edge_data = {
             'xs': [], 'ys': [],
@@ -356,8 +356,7 @@ class InteractiveVisualization:
                 # Calculate label position
                 label_x = control_x
                 label_y = control_y
-                token_address = id_to_address.get(token, token)
-                label_text = f"Flow: {int(flow):,}\nToken: {token_address[:6]}...{token_address[-4:]}"
+                label_text = f"Flow: {int(flow):,}\nToken: {token}"
 
                 edge_data['xs'].append(list(xs))
                 edge_data['ys'].append(list(ys))
@@ -373,8 +372,7 @@ class InteractiveVisualization:
         return edge_data
     
     def _prepare_edge_data(self, G: nx.DiGraph, pos: Dict[str, Tuple[float, float]], 
-                          edge_flows: Dict[Tuple[str, str], float],
-                          id_to_address: Dict[str, str]) -> Dict:
+                          edge_flows: Dict[Tuple[str, str], float]) -> Dict:
         """Prepare edge data for full graph."""
         edge_data = {
             'xs': [], 'ys': [],
@@ -406,8 +404,7 @@ class InteractiveVisualization:
                 xs = (1-t)**2 * x0 + 2*(1-t)*t * mid_x + t**2 * x1
                 ys = (1-t)**2 * y0 + 2*(1-t)*t * mid_y + t**2 * y1
 
-                token_address = id_to_address.get(token, token)
-                label_text = f"Flow: {int(flow):,}\nToken: {token_address[:6]}...{token_address[-4:]}"
+                label_text = f"Flow: {int(flow):,}\nToken: {token}"
 
                 edge_data['xs'].append(list(xs))
                 edge_data['ys'].append(list(ys))
