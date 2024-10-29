@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  pyfinder:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5006:5006"
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    command: python run.py
+    # Add restart policy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5006"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - pyfinder-network
+
+networks:
+  pyfinder-network:
+    driver: bridge

@@ -80,7 +80,7 @@ class NetworkFlowDashboard:
             # Get active data source component
             active_source = self._get_active_data_source()
             
-            # Get configuration (file paths)
+            # Get configuration
             config = active_source.get_configuration()
             if not config:
                 raise ValueError("No valid configuration available")
@@ -91,6 +91,9 @@ class NetworkFlowDashboard:
                 'networkx' if self.analysis.graph_library == 'NetworkX' else 'graph_tool'
             )
             
+            # Initialize visualization (this will now show the initial network view)
+            self.visualization.initialize_graph(self.graph_manager)
+            
             # Update status indicators
             self.analysis.init_status.object = "Graph initialized successfully"
             self.analysis.init_status.styles = {'color': 'green'}
@@ -98,48 +101,13 @@ class NetworkFlowDashboard:
             # Enable analysis inputs
             self.analysis.enable_analysis_inputs(True)
             
-            # Get graph statistics
-            if isinstance(self.graph_manager.graph, NetworkXGraph):
-                num_nodes = self.graph_manager.graph.g_nx.number_of_nodes()
-                num_edges = self.graph_manager.graph.g_nx.number_of_edges()
-            else:  # GraphToolGraph
-                num_nodes = self.graph_manager.graph.g_gt.num_vertices()
-                num_edges = self.graph_manager.graph.g_gt.num_edges()
-            
-            # Update visualization with initial graph information
-            self.visualization.stats_pane.object = f"""
-            # Graph Information
-            
-            ## Configuration
-            - Graph Library: {self.analysis.graph_library}
-            - Data Source: {self.tab_names[self.data_source_tabs.active]}
-            
-            ## Statistics
-            - Number of Vertices: {num_nodes:,}
-            - Number of Edges: {num_edges:,}
-            
-            Ready to run analysis. Please configure source and sink addresses above.
-            """
-            
         except Exception as e:
             error_msg = f"Initialization Error: {str(e)}"
-            print(f"Detailed error: {str(e)}")  # Debug print
+            print(f"Detailed error: {str(e)}")
             self.analysis.init_status.object = error_msg
             self.analysis.init_status.styles = {'color': 'red'}
             self.graph_manager = None
             self.analysis.enable_analysis_inputs(False)
-            
-            # Clear statistics on error
-            self.visualization.stats_pane.object = f"""
-            # Initialization Failed
-            
-            An error occurred while initializing the graph:
-            ```
-            {str(e)}
-            ```
-            
-            Please check your configuration and try again.
-            """
 
     def _run_analysis(self, event):
         """Run the flow analysis with current configuration."""
@@ -233,14 +201,69 @@ class NetworkFlowDashboard:
             sizing_mode='stretch_both'
         )
 
-        # Create template
+        # Define CSS styles
+        pn.config.raw_css.append("""
+        .network-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .paths-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .transactions-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+        
+        .stats-panel {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            margin-bottom: 15px;
+        }
+        
+        .control-panel {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        """)
+
+        # Create template with updated styling
         template = pn.template.MaterialTemplate(
             title="pyFinder: Path Finder Dashboard",
             header_background="#007BFF",
             header_color="#ffffff",
             sidebar=self._create_sidebar(),
             main=main_content,
-            sidebar_width=500
+            sidebar_width=500,
+            css_files=[
+                'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'
+            ]
         )
 
         return template

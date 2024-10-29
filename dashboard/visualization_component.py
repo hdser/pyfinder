@@ -4,42 +4,176 @@ import numpy as np
 import networkx as nx
 from collections import defaultdict
 from typing import Dict, List, Tuple, Any, Optional
+from bokeh.plotting import figure
+from src.graph import NetworkXGraph, GraphToolGraph 
 
 from .base_component import BaseComponent
 from .interactive_visualization import InteractiveVisualization
+from .large_network_visualization import LargeNetworkVisualization
 
 class VisualizationComponent(BaseComponent):
     """Component for visualizing network flow analysis results."""
     
     def __init__(self, **params):
         self.interactive_viz = InteractiveVisualization()
+        self.large_network_viz = LargeNetworkVisualization()
+        self.full_network_plot = None
+        self.graph_manager = None
         super().__init__(**params)
 
     def _create_components(self):
-        """Create visualization components."""
-        # Statistics panel
-        self.stats_pane = pn.pane.Markdown(
-            "Results will appear here after analysis.",
+        """Create visualization components with fixed node limits."""
+        # Stats components
+        self.network_stats = pn.pane.Markdown(
+            "Network statistics will appear here",
+            styles={'background': '#f8f9fa', 'padding': '15px', 
+                   'border-radius': '5px', 'border': '1px solid #dee2e6'},
             sizing_mode='stretch_width'
+        )
+        
+        self.path_stats = pn.pane.Markdown(
+            "Path analysis results will appear here",
+            styles={'background': '#f8f9fa', 'padding': '15px', 
+                   'border-radius': '5px', 'border': '1px solid #dee2e6'},
+            sizing_mode='stretch_width'
+        )
+        
+        # Network visualization controls
+        self.detail_level = pn.widgets.Select(
+            name='Node Display Limit',
+            options=[
+                'Very Low (100 nodes)',
+                'Low (500 nodes)',
+                'Medium (1000 nodes)',
+                'High (2000 nodes)',
+                'Full (All nodes)'
+            ],
+            value='Very Low (100 nodes)',
+            width=200
+        )
+
+        self.refresh_button = pn.widgets.Button(
+            name="↻ Refresh View",
+            button_type="default",
+            width=100
+        )
+        
+        self.network_load_progress = pn.indicators.Progress(
+            name='Loading Network',
+            value=0,
+            max=100,
+            visible=False,
+            width=200
         )
         
         # Graph visualization panes
         self.full_graph_pane = pn.pane.Bokeh(
-            sizing_mode='stretch_both',
-            min_height=500,
-            margin=(10, 10)
+            sizing_mode='stretch_width',
+            height=500,
+            margin=(0, 0, 5, 0)
+        )
+        
+        self.flow_graph_pane = pn.pane.Bokeh(
+            sizing_mode='stretch_width',
+            height=300,
+            margin=(0, 0, 5, 0)
         )
         
         self.simplified_graph_pane = pn.pane.Bokeh(
-            sizing_mode='stretch_both',
-            min_height=500,
-            margin=(10, 10)
+            sizing_mode='stretch_width',
+            height=300,
+            margin=(0, 0, 5, 0)
         )
         
-        # Transactions display
-        self.transactions_box = self._create_transactions_box()
+        # Transactions box
+        self.transactions_box = pn.Column(
+            pn.pane.HTML("""
+                <div style="height:300px; overflow-y:scroll; 
+                        border:1px solid #ddd; padding:10px;">
+                    <div id="transactions-content">
+                        <p>No transactions to display yet.</p>
+                    </div>
+                </div>
+            """),
+            sizing_mode='stretch_width',
+            visible=False  # Hide initially
+        )
+        
+        # Create the flow section for use in view()
+        self.flow_section = pn.Column(
+            pn.pane.Markdown("# Flow Analysis", 
+                        css_classes=['section-title']),
+            self.path_stats,
+            pn.Tabs(
+                ("Full Flow Network", pn.Column(
+                    self.flow_graph_pane,
+                    sizing_mode='stretch_width'
+                )),
+                ("Simplified Flow Network", pn.Column(
+                    self.simplified_graph_pane,
+                    sizing_mode='stretch_width'
+                )),
+                sizing_mode='stretch_width'
+            ),
+            self.transactions_box,
+            sizing_mode='stretch_width',
+            css_classes=['section-content'],
+            visible=False  # Hide initially
+        )
+
+    def _update_path_stats(self, flow_value, simplified_paths, simplified_edge_flows, 
+                      original_edge_flows, computation_time, algorithm):
+        """Update the path analysis statistics."""
+        stats = f"""
+        ### Flow Analysis Results
+        
+        **Flow Information**
+        - Total Flow Value: {flow_value:,} mCRC
+        - Computation Time: {computation_time:.4f} seconds
+        - Algorithm Used: {algorithm}
+
+        **Path Analysis**
+        - Number of Distinct Paths: {len(simplified_paths)}
+        - Total Transfers: {sum(len(flows) for flows in simplified_edge_flows.values())}
+        - Original Edges: {len(original_edge_flows)}
+        - Simplified Edge Groups: {len(simplified_edge_flows)}
+        """
+        
+        if hasattr(self, 'path_stats'):
+            self.path_stats.object = stats
+        
+        # Also update the main stats pane
+        if hasattr(self, 'stats_pane'):
+            self.stats_pane.object = stats
+
+    def _initialize_section_contents(self):
+        """Initialize the content of each collapsible section."""
+        # Network section content
+        self.network_content = pn.Column(
+            self.network_stats,
+            pn.Row(
+                self.detail_level,
+                self.refresh_button,
+                self.network_load_progress,
+                align='center',
+                margin=(10, 10)
+            ),
+            self.full_graph_pane,
+            sizing_mode='stretch_width',
+            css_classes=['section-content']
+        )
+        
+        # Flow analysis section content (including tabs)
+        self.flow_content = pn.Column(
+            self.path_stats,
+            self.flow_tabs,
+            self.transactions_box,
+            sizing_mode='stretch_width',
+            css_classes=['section-content']
+        )
 
     def _create_transactions_box(self):
+        """Create the transactions display box."""
         """Create the transactions display box."""
         return pn.Column(
             pn.pane.Markdown("# Aggregated Transactions"),
@@ -56,7 +190,208 @@ class VisualizationComponent(BaseComponent):
 
     def _setup_callbacks(self):
         """Set up component callbacks."""
-        pass  # No callbacks needed for now
+        self.detail_level.param.watch(self._update_detail_level, 'value')
+        self.refresh_button.on_click(self._refresh_network_view)
+
+    
+    def _update_detail_level(self, event):
+        """Update the visualization detail level with fixed node counts."""
+        if not self.graph_manager or not self.large_network_viz:
+            return
+            
+        try:
+            # Extract the level key from the selection
+            level_key = event.new.split(' ')[0]  # 'Very Low', 'Low', etc.
+            
+            # Update the node limit in the visualization
+            self.large_network_viz.set_node_limit(level_key)
+            
+            # Trigger a refresh with new layout
+            self._refresh_network_view()
+            
+        except Exception as e:
+            print(f"Error updating detail level: {str(e)}")
+            self._show_error(f"Failed to update visualization level: {str(e)}")
+
+    def _refresh_network_view(self, event=None):
+        """Refresh the network visualization with current settings."""
+        if not self.graph_manager or not self.large_network_viz:
+            return
+            
+        try:
+            self.network_load_progress.visible = True
+            self.network_load_progress.value = 20
+            
+            # Convert graph if using graph-tool
+            if isinstance(self.graph_manager.graph, GraphToolGraph):
+                # Create NetworkX graph from graph-tool
+                G = nx.DiGraph()
+                
+                # Add nodes
+                for v in self.graph_manager.graph.g_gt.vertices():
+                    node_id = str(self.graph_manager.graph.vertex_id[v])
+                    G.add_node(node_id)
+                
+                # Add edges with their properties
+                for e in self.graph_manager.graph.g_gt.edges():
+                    source_id = str(self.graph_manager.graph.vertex_id[e.source()])
+                    target_id = str(self.graph_manager.graph.vertex_id[e.target()])
+                    edge_props = {
+                        'label': self.graph_manager.graph.token[e],
+                        'capacity': self.graph_manager.graph.capacity[e]
+                    }
+                    G.add_edge(source_id, target_id, **edge_props)
+                    
+                nx_graph = G
+            else:
+                nx_graph = self.graph_manager.graph.g_nx
+            
+            self.network_load_progress.value = 40
+            
+            # Create new network view
+            new_plot = self.large_network_viz.create_initial_view(
+                nx_graph,
+                self.graph_manager.data_ingestion.id_to_address
+            )
+            
+            self.network_load_progress.value = 80
+            
+            # Clear existing pane
+            if hasattr(self, 'full_graph_pane'):
+                self.full_graph_pane.object = None
+            
+            # Create new network section with updated graph
+            network_section = pn.Column(
+                pn.pane.Markdown("# Network Overview", 
+                            css_classes=['section-title']),
+                self.network_stats,
+                pn.Row(
+                    self.detail_level,
+                    self.refresh_button,
+                    self.network_load_progress,
+                    align='center',
+                    css_classes=['network-controls']
+                ),
+                pn.pane.Bokeh(new_plot,
+                             sizing_mode='stretch_width',
+                             height=500,
+                             margin=(0, 0, 5, 0)),
+                sizing_mode='stretch_width',
+                css_classes=['section-content']
+            )
+            
+            # Update the main view
+            self._main_view.objects = [network_section, self.flow_section]
+            
+            self._update_network_stats(nx_graph)
+            
+            self.network_load_progress.value = 100
+            self.network_load_progress.visible = False
+            
+        except Exception as e:
+            print(f"Error refreshing network view: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Error refreshing network view: {str(e)}")
+            self.network_load_progress.visible = False
+
+    def _update_network_stats(self, G: nx.DiGraph):
+        """Update network statistics display."""
+        try:
+            # Exclude nodes with no connections
+            connected_nodes = [node for node, degree in G.degree() if degree > 0]
+            total_conn_nodes = len(connected_nodes)
+            total_edges = G.number_of_edges()
+            total_nodes = G.number_of_nodes()
+            
+            if not total_nodes:
+                stats = "No connected nodes found in the network"
+            else:
+                # Calculate network metrics
+                avg_degree = 2 * total_edges / total_nodes
+                density = nx.density(G.subgraph(connected_nodes))
+                
+                stats = f"""
+                ## Network Statistics
+                
+                ### Overview
+                - Total Nodes: {total_nodes:,}
+                - Total Connected Nodes: {total_conn_nodes:,}
+                - Total Edges: {total_edges:,}
+                    
+                ### Metrics
+                - Average Degree: {avg_degree:.2f}
+                - Network Density: {density:.4f}
+                """
+            
+            self.network_stats.object = stats
+            
+        except Exception as e:
+            print(f"Error updating network stats: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Error updating network stats: {str(e)}")
+
+    def initialize_graph(self, graph_manager):
+        """Initialize with a graph manager."""
+        try:
+            self.graph_manager = graph_manager
+            self.network_load_progress.visible = True
+            self.network_load_progress.value = 20
+            
+            # Convert graph-tool graph to NetworkX if needed
+            if isinstance(graph_manager.graph, GraphToolGraph):
+                # Create NetworkX graph from graph-tool
+                G = nx.DiGraph()
+                g_gt = graph_manager.graph.g_gt
+                vertex_id = graph_manager.graph.vertex_id
+                token = graph_manager.graph.token
+                capacity = graph_manager.graph.capacity
+                
+                # Add nodes
+                for v in g_gt.vertices():
+                    node_id = str(vertex_id[v])
+                    G.add_node(node_id)
+                
+                # Add edges with their properties
+                for e in g_gt.edges():
+                    source_id = str(vertex_id[e.source()])
+                    target_id = str(vertex_id[e.target()])
+                    edge_props = {
+                        'label': token[e],
+                        'capacity': capacity[e]
+                    }
+                    G.add_edge(source_id, target_id, **edge_props)
+                
+                nx_graph = G
+            else:
+                nx_graph = graph_manager.graph.g_nx
+            
+            self.network_load_progress.value = 40
+            
+            # Create initial network view
+            new_plot = self.large_network_viz.create_initial_view(
+                nx_graph,
+                graph_manager.data_ingestion.id_to_address
+            )
+            
+            self.network_load_progress.value = 80
+            
+            # Update the graph pane
+            self.full_graph_pane.object = new_plot
+            self.full_graph_pane.param.trigger('object')
+            
+            self._update_network_stats(nx_graph)
+            
+            self.network_load_progress.value = 100
+            self.network_load_progress.visible = False
+            
+        except Exception as e:
+            print(f"Error initializing network view: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Error initializing network view: {str(e)}")
+            self.network_load_progress.visible = False
 
     def update_view(self, results, computation_time, graph_manager, algorithm):
         """Update all visualization elements with new analysis results."""
@@ -67,8 +402,12 @@ class VisualizationComponent(BaseComponent):
         try:
             flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = results
 
-            # Update statistics and transactions
-            self._update_stats(
+            # Make flow section visible
+            self.flow_section.visible = True
+            self.transactions_box.visible = True
+
+            # Update path analysis statistics
+            self._update_path_stats(
                 flow_value=flow_value,
                 simplified_paths=simplified_paths,
                 simplified_edge_flows=simplified_edge_flows,
@@ -76,14 +415,11 @@ class VisualizationComponent(BaseComponent):
                 computation_time=computation_time,
                 algorithm=algorithm
             )
-            self._update_transactions(simplified_edge_flows, graph_manager)
 
-            try:
-                print("Creating full graph visualization...")
-                # Create subgraph with only the nodes and edges in the flow
+            # Update flow visualizations
+            if graph_manager:
+                # Create full flow visualization
                 flow_subgraph = self._create_flow_subgraph(graph_manager.graph, original_edge_flows)
-
-                # Create full graph visualization
                 full_plot = self.interactive_viz.create_bokeh_network(
                     flow_subgraph,
                     original_edge_flows,
@@ -91,16 +427,14 @@ class VisualizationComponent(BaseComponent):
                     "Full Flow Network",
                     simplified=False
                 )
-                self.full_graph_pane.object = full_plot
+                self.flow_graph_pane.object = full_plot
 
-                print("Creating simplified graph visualization...")
-                # Create simplified graph
+                # Create simplified flow visualization
                 simplified_graph = nx.DiGraph()
                 for (u, v), token_flows in simplified_edge_flows.items():
                     for token, flow in token_flows.items():
-                        simplified_graph.add_edge(u, v, label=token)
-
-                # Create simplified graph visualization
+                        simplified_graph.add_edge(u, v, label=token, flow=flow)
+                
                 simplified_plot = self.interactive_viz.create_bokeh_network(
                     simplified_graph,
                     simplified_edge_flows,
@@ -110,17 +444,33 @@ class VisualizationComponent(BaseComponent):
                 )
                 self.simplified_graph_pane.object = simplified_plot
 
-            except Exception as e:
-                print(f"Error creating visualization: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                self._show_error(f"Visualization error: {str(e)}")
+            # Update transactions
+            self._update_transactions(simplified_edge_flows, graph_manager)
 
         except Exception as e:
             print(f"Error updating visualizations: {str(e)}")
             import traceback
             traceback.print_exc()
             self._show_error(str(e))
+
+    def _update_path_stats(self, flow_value, simplified_paths, simplified_edge_flows, 
+                          original_edge_flows, computation_time, algorithm):
+        """Update the path analysis statistics."""
+        stats = f"""
+        ### Flow Analysis Results
+        
+        **Flow Information**
+        - Total Flow Value: {flow_value:,} mCRC
+        - Computation Time: {computation_time:.4f} seconds
+        - Algorithm Used: {algorithm}
+
+        **Path Analysis**
+        - Number of Distinct Paths: {len(simplified_paths)}
+        - Total Transfers: {sum(len(flows) for flows in simplified_edge_flows.values())}
+        - Original Edges: {len(original_edge_flows)}
+        - Simplified Edge Groups: {len(simplified_edge_flows)}
+        """
+        self.path_stats.object = stats
 
     def _create_flow_subgraph(self, graph, edge_flows):
         """Create a subgraph containing only the edges and nodes involved in the flow."""
@@ -252,64 +602,48 @@ class VisualizationComponent(BaseComponent):
         self.simplified_graph_pane.object = None
 
     def _show_error(self, error_message: str):
-        """Show error state in all visualization components."""
-        self.stats_pane.object = f"""
-        # Error in Analysis
+        """Show error state in visualization components."""
+        try:
+            if hasattr(self, 'network_stats'):
+                self.network_stats.object = f"""
+                ## Error in Visualization
 
-        An error occurred while processing the results:
+                {error_message}
 
-        ```
-        {error_message}
-        ```
-
-        Please try again or contact support if the issue persists.
-        """
-        
-        self.transactions_box[-1].object = """
-            <div style="height:300px; overflow-y:scroll; 
-                       border:1px solid #ddd; padding:10px; 
-                       background-color: #fff0f0; border-radius: 5px;">
-                <div id="transactions-content" style="text-align: center; 
-                                                    padding-top: 100px;">
-                    <h3 style="color: red;">Error Processing Transactions</h3>
-                    <p>Please try again or contact support.</p>
-                </div>
-            </div>
-        """
-        
-        # Clear graph panes
-        self.full_graph_pane.object = None
-        self.simplified_graph_pane.object = None
+                Please try refreshing the view or adjusting the settings.
+                """
+            
+            # Clear any existing plots without triggering updates
+            if hasattr(self, 'full_graph_pane'):
+                self.full_graph_pane.object = None
+                
+        except Exception as e:
+            print(f"Error showing error message: {str(e)}")
 
     def view(self):
-        """Return the component's view."""
-        # Create graph containers with proper sizing
-        full_graph_container = pn.Column(
+        """Return the component's view with updated controls."""
+        # Network Overview Section with simplified controls
+        network_section = pn.Column(
+            pn.pane.Markdown("# Network Overview", 
+                        css_classes=['section-title']),
+            self.network_stats,
+            pn.Row(
+                self.detail_level,
+                self.refresh_button,
+                self.network_load_progress,
+                align='center',
+                css_classes=['network-controls']
+            ),
             self.full_graph_pane,
-            sizing_mode='stretch_both',
-            min_height=600
+            sizing_mode='stretch_width',
+            css_classes=['section-content']
         )
         
-        simplified_graph_container = pn.Column(
-            self.simplified_graph_pane,
-            sizing_mode='stretch_both',
-            min_height=600
+        # Store main view for later updates
+        self._main_view = pn.Column(
+            network_section,
+            self.flow_section,
+            sizing_mode='stretch_width'
         )
-
-        # Create tabs
-        graph_tabs = pn.Tabs(
-            ("Flow Network", full_graph_container),
-            ("Simplified Flow Network", simplified_graph_container),
-            sizing_mode='stretch_both'
-        )
-
-        # Main layout
-        return pn.Column(
-            pn.pane.Markdown("## Network Flow Analysis"),
-            self.stats_pane,
-            self.transactions_box,
-            pn.pane.Markdown("## Flow Paths"),
-            graph_tabs,
-            sizing_mode='stretch_both',
-            min_width=800
-        )
+        
+        return self._main_view

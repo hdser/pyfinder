@@ -14,14 +14,15 @@ from bokeh.models import (
 )
 from collections import defaultdict
 import numpy as np
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Optional
 
 class InteractiveVisualization:
     def __init__(self):
         self.node_tooltips = [
             ("Node", "@node"),
             ("Type", "@type"),
-            ("Address", "@address")
+            ("Address", "@address"),
+            ("Connections", "@connections")
         ]
         self.edge_tooltips = [
             ("From", "@from_node"),
@@ -45,9 +46,9 @@ class InteractiveVisualization:
             plot = figure(
                 title=title,
                 tools="pan,wheel_zoom,box_zoom,reset,save",
-                active_scroll='wheel_zoom',
+                active_scroll=None,
                 sizing_mode='stretch_both',
-                min_height=400,
+                min_height=300,
                 aspect_ratio=1.5
             )
 
@@ -145,36 +146,53 @@ class InteractiveVisualization:
             error_plot.text(0, 0, [f"Error: {str(e)}"], text_color="red")
             return error_plot
 
-    def _prepare_node_data(self, G, pos, id_to_address):
+    def _calculate_layout(self, G: nx.DiGraph) -> Dict[str, Tuple[float, float]]:
+        """Calculate layout for the graph."""
+        try:
+            return nx.spring_layout(
+                G,
+                k=1/np.sqrt(len(G)),
+                iterations=50,
+                scale=10
+            )
+        except Exception as e:
+            print(f"Error calculating layout: {str(e)}")
+            return nx.circular_layout(G, scale=10)
+        
+    def _prepare_node_data(self, G: nx.DiGraph, pos: Dict[str, Tuple[float, float]], 
+                          id_to_address: Dict[str, str]) -> dict:
         """Prepare node data for visualization."""
+        degree_dict = dict(G.degree())
+        max_degree = max(degree_dict.values()) if degree_dict else 1
+        
         node_data = {
-            'x': [], 'y': [], 
-            'node': [], 
-            'type': [],
-            'address': [],
-            'color': [],
-            'size': []
+            'x': [], 'y': [], 'node': [], 'type': [], 'address': [],
+            'color': [], 'size': [], 'connections': [], 'alpha': []
         }
-
+        
         for node in G.nodes():
             x, y = pos[node]
-            node_data['x'].append(x)
-            node_data['y'].append(y)
+            node_data['x'].append(float(x))
+            node_data['y'].append(float(y))
             node_data['node'].append(str(node))
+            
+            degree = degree_dict[node]
+            node_data['connections'].append(degree)
             
             if '_' in str(node):
                 node_data['type'].append('intermediate')
-                node_data['color'].append('red')
-                node_data['size'].append(10)
-                node_data['address'].append('---')
+                node_data['color'].append('#ff7f7f')
+                node_data['size'].append(5)
+                node_data['alpha'].append(0.5)
             else:
                 node_data['type'].append('regular')
-                node_data['color'].append('lightblue')
-                node_data['size'].append(15)
+                node_data['color'].append('#7fbfff')
+                size = 5 + (degree / max_degree) * 15
+                node_data['size'].append(size)
+                node_data['alpha'].append(0.8)
             
-                address = id_to_address.get(str(node), "Unknown")
-                node_data['address'].append(f"{address}")
-
+            node_data['address'].append(id_to_address.get(str(node), "Unknown"))
+        
         return node_data
 
     def _add_arrows_and_labels(self, plot, edge_data):
@@ -419,5 +437,62 @@ class InteractiveVisualization:
 
         return edge_data
     
+    def _add_graph_elements(self, plot: figure, node_data: dict, edge_data: dict) -> None:
+        """Add nodes and edges to the plot."""
+        # Create data sources
+        node_source = ColumnDataSource(node_data)
+        edge_source = ColumnDataSource(edge_data)
+        
+        # Add edges
+        edges = plot.multi_line(
+            xs='xs', ys='ys',
+            line_color='gray',
+            line_width='line_width',
+            line_alpha='alpha',
+            source=edge_source,
+            hover_line_color='#ff7f0e',
+            hover_line_alpha=1.0
+        )
+        
+        # Add nodes
+        nodes = plot.scatter(
+            'x', 'y',
+            source=node_source,
+            size='size',
+            fill_color='color',
+            line_color='black',
+            alpha='alpha',
+            hover_fill_color='#ff7f0e',
+            hover_alpha=1.0
+        )
+        
+        # Add hover tools
+        node_hover = HoverTool(renderers=[nodes], tooltips=self.node_tooltips)
+        edge_hover = HoverTool(renderers=[edges], tooltips=self.edge_tooltips)
+        plot.add_tools(node_hover, edge_hover)
+        
+        # Add node selection behavior
+        nodes.selection_glyph = Circle(
+            fill_color='#ff7f0e',
+            line_color='black'
+        )
+        nodes.nonselection_glyph = Circle(
+            fill_color='color',
+            line_color='black',
+            fill_alpha=0.1
+        )
+
+        # Add labels if not too many nodes
+        if len(node_data['x']) <= self.max_labels:
+            labels = LabelSet(
+                x='x', y='y',
+                text='node',
+                source=node_source,
+                text_font_size='8pt',
+                x_offset=5,
+                y_offset=5,
+                text_alpha=0.7
+            )
+            plot.add_layout(labels)
     
 
