@@ -75,13 +75,13 @@ class VisualizationComponent(BaseComponent):
         
         self.flow_graph_pane = pn.pane.Bokeh(
             sizing_mode='stretch_width',
-            height=300,
+            height=450,
             margin=(0, 0, 5, 0)
         )
         
         self.simplified_graph_pane = pn.pane.Bokeh(
             sizing_mode='stretch_width',
-            height=300,
+            height=450,
             margin=(0, 0, 5, 0)
         )
         

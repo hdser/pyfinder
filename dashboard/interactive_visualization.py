@@ -30,7 +30,7 @@ class InteractiveVisualization:
             ("Token", "@token"),
             ("Flow", "@flow{0,0} mCRC")
         ]
-        self.max_edges = 100
+        self.max_edges = 1000
         self.max_labels = 50
 
     def create_bokeh_network(

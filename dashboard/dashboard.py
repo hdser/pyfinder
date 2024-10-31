@@ -71,6 +71,7 @@ class NetworkFlowDashboard:
             print(f"Error getting active data source: {str(e)}")
             return self.data_sources["CSV"]  # Default to CSV if there's an error
 
+
     def _initialize_graph_manager(self, event):
         """Initialize the graph manager with the current data source configuration."""
         try:
