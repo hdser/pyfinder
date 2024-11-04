@@ -1,20 +1,17 @@
-# dashboard.py
-
 import panel as pn
 import time
+from typing import Optional, Dict, Any
 
 from .csv_component import CSVDataSourceComponent
-from .postgres_component import (
-    PostgresManualComponent,
-    PostgresEnvComponent
-)
+from .postgres_component import PostgresManualComponent, PostgresEnvComponent
 from .analysis_component import AnalysisComponent 
 from .visualization_component import VisualizationComponent
+from .spark_network_visualization import SparkVisualizationComponent
 from src.graph_manager import GraphManager
 from src.graph import NetworkXGraph, GraphToolGraph
 
 class NetworkFlowDashboard:
-    def __init__(self):
+    def __init__(self, enable_spark: bool = True):
         # Initialize components
         self.data_sources = {
             "CSV": CSVDataSourceComponent(),
@@ -22,7 +19,11 @@ class NetworkFlowDashboard:
             "PostgreSQL (ENV)": PostgresEnvComponent()
         }
         self.analysis = AnalysisComponent()
-        self.visualization = VisualizationComponent()
+        
+        # Use either Spark or regular visualization
+        self.visualization = (SparkVisualizationComponent() if enable_spark 
+                            else VisualizationComponent())
+                            
         self.graph_manager = None
 
         # Create the data source tabs
@@ -30,11 +31,30 @@ class NetworkFlowDashboard:
         # Set up component callbacks
         self._setup_callbacks()
 
+    def _initialize_spark(self):
+        """Initialize Spark if not already initialized."""
+        if not self.spark_initialized:
+            try:
+                from pyspark.sql import SparkSession
+                
+                # Create Spark session with GraphFrames
+                self.spark = SparkSession.builder \
+                    .appName("NetworkVisualization") \
+                    .config("spark.jars.packages", "graphframes:graphframes:0.8.2-spark3.0-s_2.12") \
+                    .getOrCreate()
+                    
+                self.spark_initialized = True
+                print("Spark initialized successfully")
+                
+            except Exception as e:
+                print(f"Warning: Could not initialize Spark: {str(e)}")
+                self.spark_initialized = False
+
     def _create_data_source_tabs(self):
         """Create tabs for different data sources."""
         self.tab_names = list(self.data_sources.keys())
         tab_contents = [(name, component.view()) 
-                        for name, component in self.data_sources.items()]
+                       for name, component in self.data_sources.items()]
         
         self.data_source_tabs = pn.Tabs(
             *tab_contents,
@@ -78,28 +98,22 @@ class NetworkFlowDashboard:
             self.analysis.init_status.object = "Initializing graph..."
             self.analysis.init_status.styles = {'color': 'blue'}
             
-            # Get active data source component
             active_source = self._get_active_data_source()
-            
-            # Get configuration
             config = active_source.get_configuration()
+            
             if not config:
                 raise ValueError("No valid configuration available")
             
-            # Initialize graph manager
             self.graph_manager = GraphManager(
                 config,
                 'networkx' if self.analysis.graph_library == 'NetworkX' else 'graph_tool'
             )
             
-            # Initialize visualization (this will now show the initial network view)
+            # Initialize visualization with the graph manager
             self.visualization.initialize_graph(self.graph_manager)
             
-            # Update status indicators
             self.analysis.init_status.object = "Graph initialized successfully"
             self.analysis.init_status.styles = {'color': 'green'}
-            
-            # Enable analysis inputs
             self.analysis.enable_analysis_inputs(True)
             
         except Exception as e:
@@ -109,6 +123,7 @@ class NetworkFlowDashboard:
             self.analysis.init_status.styles = {'color': 'red'}
             self.graph_manager = None
             self.analysis.enable_analysis_inputs(False)
+
 
     def _run_analysis(self, event):
         """Run the flow analysis with current configuration."""
@@ -140,7 +155,7 @@ class NetworkFlowDashboard:
             )
             computation_time = time.time() - start_time
 
-            # Update visualization using the visualization component
+            # Update visualization with Spark support if applicable
             self.update_results_view(computation_time)
             self.analysis.update_status("Analysis completed successfully", 'success')
 
@@ -152,7 +167,7 @@ class NetworkFlowDashboard:
             self.update_results_view(0)
 
     def _create_sidebar(self):
-        """Create the dashboard sidebar with proper spacing."""
+        """Create the dashboard sidebar."""
         return pn.Column(
             pn.Accordion(
                 ("Data Source Configuration", pn.Column(
@@ -171,10 +186,11 @@ class NetworkFlowDashboard:
             scroll=True
         )
 
-    def update_results_view(self, computation_time):
-        """Update the UI with analysis results"""
+
+    def update_results_view(self, computation_time: float):
+        """Update the visualization and results view."""
         if self.results is None:
-            self.visualization.update_view(None, 0, None, None)
+            self.visualization.update_view(None, computation_time, None, None)
             return
 
         try:
@@ -202,76 +218,28 @@ class NetworkFlowDashboard:
             sizing_mode='stretch_both'
         )
 
-        # Define CSS styles
-        pn.config.raw_css.append("""
-        .network-section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .paths-section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .transactions-section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 15px;
-        }
-        
-        .stats-panel {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #dee2e6;
-            margin-bottom: 15px;
-        }
-        
-        .control-panel {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 5px;
-            margin-bottom: 15px;
-        }
-        """)
-
-        # Create template with updated styling
+        # Create template with styling
         template = pn.template.MaterialTemplate(
-            title="pyFinder: Path Finder Dashboard",
+            title="pyFinder: Network Flow Analysis Dashboard",
             header_background="#007BFF",
             header_color="#ffffff",
             sidebar=self._create_sidebar(),
             main=main_content,
-            sidebar_width=500,
-            css_files=[
-                'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'
-            ]
+            sidebar_width=500
         )
 
         return template
+    
+    def cleanup(self):
+        """Clean up resources including Spark."""
+        if hasattr(self, 'visualization'):
+            self.visualization.cleanup()
+        if hasattr(self, 'spark') and self.spark_initialized:
+            self.spark.stop()
 
-def create_dashboard():
-    """Create and return a new dashboard instance."""
-    dashboard = NetworkFlowDashboard()
+def create_dashboard(enable_spark: bool = True):
+    """Create and return a new dashboard instance with optional Spark support."""
+    dashboard = NetworkFlowDashboard(enable_spark=enable_spark)
     return dashboard.view()
 
 if __name__ == "__main__":
