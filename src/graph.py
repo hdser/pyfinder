@@ -37,6 +37,11 @@ class NetworkXGraph(BaseGraph):
         g = nx.DiGraph()
         for (u, v), capacity, token in zip(edges, capacities, tokens):
             g.add_edge(u, v, capacity=int(capacity), label=token)
+
+        import json
+        from networkx.readwrite import json_graph
+        with open('networkdata1.json', 'w') as outfile1:
+            outfile1.write(json.dumps(json_graph.node_link_data(g)))
         return g
 
     def has_vertex(self, vertex_id: str) -> bool:
@@ -64,16 +69,19 @@ class NetworkXGraph(BaseGraph):
             print("Sink has no incoming edges. No flow is possible.")
             return 0, {}
 
+        # Create a copy of the graph to modify capacities
+        graph_copy = self.g_nx.copy()
+        
         # Process direct edges efficiently
         direct_flow = 0
         direct_flow_dict = {}
         direct_edges = []
         
         # Collect all potential direct edges first
-        for node in self.g_nx.successors(source):
-            if '_' in node and sink in self.g_nx.successors(node):
-                capacity_source_intermediate = self.g_nx[source][node]['capacity']
-                capacity_intermediate_sink = self.g_nx[node][sink]['capacity']
+        for node in graph_copy.successors(source):
+            if '_' in node and sink in graph_copy.successors(node):
+                capacity_source_intermediate = graph_copy[source][node]['capacity']
+                capacity_intermediate_sink = graph_copy[node][sink]['capacity']
                 direct_edges.append((node, min(capacity_source_intermediate, capacity_intermediate_sink)))
 
         # Process direct edges if we have any
@@ -91,6 +99,7 @@ class NetworkXGraph(BaseGraph):
                 flow = min(capacity, remaining_flow) if req_flow_int is not None else capacity
                 
                 if flow > 0:
+                    # Update direct flow tracking
                     direct_flow += flow
                     if source not in direct_flow_dict:
                         direct_flow_dict[source] = {}
@@ -99,6 +108,10 @@ class NetworkXGraph(BaseGraph):
                         
                     direct_flow_dict[source][intermediate_node] = flow
                     direct_flow_dict[intermediate_node][sink] = flow
+                    
+                    # Update remaining capacities in the graph
+                    graph_copy[source][intermediate_node]['capacity'] -= flow
+                    graph_copy[intermediate_node][sink]['capacity'] -= flow
                     
                     if req_flow_int is not None:
                         remaining_flow -= flow
@@ -112,16 +125,21 @@ class NetworkXGraph(BaseGraph):
         remaining_requested_flow = None if requested_flow is None else int(requested_flow) - direct_flow
 
         try:
-            # Compute the maximum flow
+            # Remove edges with zero capacity
+            zero_capacity_edges = [(u, v) for u, v, d in graph_copy.edges(data=True) 
+                                if d['capacity'] <= 0]
+            graph_copy.remove_edges_from(zero_capacity_edges)
+            
+            # Compute the maximum flow on the modified graph
             try:
                 flow_value, flow_dict = nx.maximum_flow(
-                    self.g_nx, source, sink,
+                    graph_copy, source, sink,
                     flow_func=flow_func,
                     cutoff=remaining_requested_flow
                 )
             except:
                 flow_value, flow_dict = nx.maximum_flow(
-                    self.g_nx, source, sink,
+                    graph_copy, source, sink,
                     flow_func=flow_func
                 )
             
@@ -223,6 +241,7 @@ class NetworkXGraph(BaseGraph):
 
     def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
         simplified_paths = []
+        
         for path, labels, flow in original_paths:
             simplified_path = []
             simplified_labels = []
@@ -343,6 +362,10 @@ class GraphToolGraph(BaseGraph):
             print("Sink has no incoming edges. No flow is possible.")
             return 0, {}
 
+        # Create a copy of the capacity property map
+        capacity_copy = self.g_gt.new_edge_property("int64_t")
+        capacity_copy.a = self.capacity.a.copy()
+
         # Process direct edges efficiently
         direct_flow = 0
         direct_flow_dict = {}
@@ -354,11 +377,13 @@ class GraphToolGraph(BaseGraph):
             if '_' in self.vertex_id[v]:
                 for e2 in v.out_edges():
                     if e2.target() == t:
-                        capacity_source_intermediate = int(self.capacity[e])
-                        capacity_intermediate_sink = int(self.capacity[e2])
+                        capacity_source_intermediate = int(capacity_copy[e])
+                        capacity_intermediate_sink = int(capacity_copy[e2])
                         direct_edges.append((
                             self.vertex_id[v],
-                            min(capacity_source_intermediate, capacity_intermediate_sink)
+                            min(capacity_source_intermediate, capacity_intermediate_sink),
+                            e,  # Store the actual edges for capacity updates
+                            e2
                         ))
 
         # Process direct edges if we have any
@@ -369,7 +394,7 @@ class GraphToolGraph(BaseGraph):
             remaining_flow = req_flow_int if req_flow_int is not None else float('inf')
             
             # Process each direct edge
-            for intermediate_node, capacity in direct_edges:
+            for intermediate_node, capacity, e1, e2 in direct_edges:
                 if req_flow_int is not None and remaining_flow <= 0:
                     break
                     
@@ -385,6 +410,10 @@ class GraphToolGraph(BaseGraph):
                     direct_flow_dict[source][intermediate_node] = flow
                     direct_flow_dict[intermediate_node][sink] = flow
                     
+                    # Update remaining capacities
+                    capacity_copy[e1] -= flow
+                    capacity_copy[e2] -= flow
+                    
                     if req_flow_int is not None:
                         remaining_flow -= flow
 
@@ -396,46 +425,59 @@ class GraphToolGraph(BaseGraph):
         # Calculate remaining flow
         remaining_requested_flow = None if requested_flow is None else int(requested_flow) - direct_flow
 
-        # Compute the flow using graph-tool
-        res = flow_func(self.g_gt, s, t, self.capacity)
-        
-        # Compute actual flows
-        flow = self.capacity.copy()
-        flow.a = self.capacity.a - res.a
-
-        # Calculate total flow and create flow dictionary
-        total_flow = 0
-        flow_dict = {}
-        
-        # Process all edges with positive flow
+        # Remove edges with zero or negative capacity
+        edge_filter = self.g_gt.new_edge_property("bool")
         for e in self.g_gt.edges():
-            f = int(flow[e])
-            if f > 0:
-                u = self.vertex_id[e.source()]
-                v = self.vertex_id[e.target()]
-                if u not in flow_dict:
-                    flow_dict[u] = {}
-                flow_dict[u][v] = f
-                if e.target() == t:
-                    total_flow += f
+            edge_filter[e] = (capacity_copy[e] > 0)
+        
+        # Set the edge filter on the graph
+        self.g_gt.set_edge_filter(edge_filter)
+        
+        try:
+            # Compute the flow using graph-tool with modified capacities
+            res = flow_func(self.g_gt, s, t, capacity_copy)
+            
+            # Compute actual flows
+            flow = capacity_copy.copy()
+            flow.a = capacity_copy.a - res.a
 
-        # Apply flow limit if requested
-        if remaining_requested_flow is not None:
-            total_flow = min(total_flow, remaining_requested_flow)
+            # Calculate total flow and create flow dictionary
+            total_flow = 0
+            flow_dict = {}
+            
+            # Process all edges with positive flow
+            for e in self.g_gt.edges():
+                f = int(flow[e])
+                if f > 0:
+                    u = self.vertex_id[e.source()]
+                    v = self.vertex_id[e.target()]
+                    if u not in flow_dict:
+                        flow_dict[u] = {}
+                    flow_dict[u][v] = f
+                    if e.target() == t:
+                        total_flow += f
 
-        # Store the residual graph for later use
-        self.residual_capacity = res
+            # Apply flow limit if requested
+            if remaining_requested_flow is not None:
+                total_flow = min(total_flow, remaining_requested_flow)
 
-        # Combine with direct flows if we have any
-        if direct_flow_dict:
-            for u, flows in direct_flow_dict.items():
-                if u not in flow_dict:
-                    flow_dict[u] = flows.copy()
-                else:
-                    for v, f in flows.items():
-                        flow_dict[u][v] = flow_dict[u].get(v, 0) + f
+            # Store the residual graph for later use
+            self.residual_capacity = res
 
-        return total_flow + direct_flow, flow_dict
+            # Combine with direct flows if we have any
+            if direct_flow_dict:
+                for u, flows in direct_flow_dict.items():
+                    if u not in flow_dict:
+                        flow_dict[u] = flows.copy()
+                    else:
+                        for v, f in flows.items():
+                            flow_dict[u][v] = flow_dict[u].get(v, 0) + f
+
+            return total_flow + direct_flow, flow_dict
+
+        finally:
+            # Clear the edge filter
+            self.g_gt.clear_filters()
 
     
 

@@ -44,6 +44,7 @@ class DataIngestion:
             self.df_balances, left_on='trustee', right_on='tokenAddress', how='left'
         )
 
+
         # Filter out rows where account is the same as truster
         df_filtered = df_merged[df_merged['account'] != df_merged['truster']].copy()
 

@@ -112,7 +112,7 @@ class Visualization:
             
             for k, rad in zip(keys, rad_list):
                 edge_data = flow_graph[u][v][k]
-                label = f"Flow: {edge_data['flow']:.2f}\nToken: {edge_data['token']}"
+                label = f"Flow: {edge_data['flow']}\nToken: {edge_data['token']}"
 
                 x1, y1 = pos[u]
                 x2, y2 = pos[v]
