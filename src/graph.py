@@ -1,8 +1,12 @@
 import networkx as nx
+
 from graph_tool import Graph
 from graph_tool.flow import edmonds_karp_max_flow, push_relabel_max_flow, boykov_kolmogorov_max_flow
 from graph_tool.search import dfs_search, DFSVisitor
 from graph_tool.util import find_edge
+
+from ortools.graph.python import max_flow
+
 from typing import List, Tuple, Dict, Callable, Optional
 import time
 from collections import defaultdict, deque
@@ -14,6 +18,8 @@ class GraphCreator:
             return NetworkXGraph(edges, capacities, tokens)
         elif graph_type == 'graph_tool':
             return GraphToolGraph(edges, capacities, tokens)
+        elif graph_type == 'ortools':
+            return ORToolsGraph(edges, capacities, tokens)
         else:
             raise ValueError(f"Unsupported graph type: {graph_type}")
 
@@ -38,10 +44,11 @@ class NetworkXGraph(BaseGraph):
         for (u, v), capacity, token in zip(edges, capacities, tokens):
             g.add_edge(u, v, capacity=int(capacity), label=token)
 
-        import json
-        from networkx.readwrite import json_graph
-        with open('networkdata1.json', 'w') as outfile1:
-            outfile1.write(json.dumps(json_graph.node_link_data(g)))
+        nx.write_graphml_lxml(g, "test.graphml")
+        #import json
+        #from networkx.readwrite import json_graph
+        #with open('networkdata1.json', 'w') as outfile1:
+        #    outfile1.write(json.dumps(json_graph.node_link_data(g)))
         return g
 
     def has_vertex(self, vertex_id: str) -> bool:
@@ -262,15 +269,6 @@ class NetworkXGraph(BaseGraph):
                 simplified_paths.append((simplified_path, simplified_labels, flow))
         return simplified_paths
     
-    def simplified_flow_decomposition2(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
-        simplified_paths = []
-        for path, labels, flow in original_paths:
-            simplified_path = [node for node in path if '_' not in node]
-            simplified_labels = [label for node, label in zip(path[1:], labels) if '_' not in node]
-            if len(simplified_path) > 1:
-                simplified_paths.append((simplified_path, simplified_labels, flow))
-        return simplified_paths
-
 
 
 class GraphToolGraph(BaseGraph):
@@ -605,11 +603,256 @@ class GraphToolGraph(BaseGraph):
                 simplified_paths.append((simplified_path, simplified_labels, flow))
         return simplified_paths
 
-    def simplified_flow_decomposition2(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
+
+
+class ORToolsGraph(BaseGraph):
+    def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
+        """
+        Initialize OR-Tools graph with edges, capacities and tokens.
+        
+        Args:
+            edges: List of (source, target) node pairs
+            capacities: List of edge capacities
+            tokens: List of token identifiers for each edge
+        """
+        # Create a NetworkX graph for storing the graph structure
+        self.g_nx = nx.DiGraph()
+        for (u, v), capacity, token in zip(edges, capacities, tokens):
+            self.g_nx.add_edge(u, v, capacity=int(capacity), label=token)
+        
+        # Create node index mapping
+        self.node_to_index = {node: idx for idx, node in enumerate(self.g_nx.nodes())}
+        self.index_to_node = {idx: node for node, idx in self.node_to_index.items()}
+        
+        # Initialize OR-Tools max flow solver
+        self.solver = max_flow.SimpleMaxFlow()
+        
+        # Add all edges to the solver
+        for u, v, data in self.g_nx.edges(data=True):
+            u_idx = self.node_to_index[u]
+            v_idx = self.node_to_index[v]
+            capacity = data['capacity']
+            self.solver.add_arc_with_capacity(u_idx, v_idx, capacity)
+
+    def has_vertex(self, vertex_id: str) -> bool:
+        """Check if vertex exists in graph."""
+        return vertex_id in self.g_nx
+
+    def has_edge(self, u: str, v: str) -> bool:
+        """Check if edge exists in graph."""
+        return self.g_nx.has_edge(u, v)
+
+    def get_edge_data(self, u: str, v: str) -> Dict:
+        """Get edge data."""
+        return self.g_nx.get_edge_data(u, v) or {}
+
+    def get_vertex(self, vertex_id: str):
+        """Get vertex."""
+        return vertex_id if vertex_id in self.g_nx else None
+
+    def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, 
+                    requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
+        """
+        Compute maximum flow between source and sink nodes using OR-Tools.
+        
+        Args:
+            source: Source node ID
+            sink: Sink node ID
+            flow_func: Ignored (OR-Tools always uses its own algorithm)
+            requested_flow: Optional maximum flow to compute
+            
+        Returns:
+            Tuple containing:
+            - Total flow value
+            - Flow dictionary {node: {neighbor: flow}}
+        """
+        if not self.has_vertex(source) or not self.has_vertex(sink):
+            raise ValueError(f"Source node '{source}' or sink node '{sink}' not in graph.")
+            
+        # Convert node IDs to indices
+        source_idx = self.node_to_index[source]
+        sink_idx = self.node_to_index[sink]
+        
+        # Early exit if sink has no incoming edges
+        if self.g_nx.in_degree(sink) == 0:
+            print("Sink has no incoming edges. No flow is possible.")
+            return 0, {}
+
+        # Process direct edges
+        direct_flow = 0
+        direct_flow_dict = {}
+        
+        # Look for direct paths (through intermediate nodes)
+        for node in self.g_nx.successors(source):
+            if '_' in str(node) and sink in self.g_nx.successors(node):
+                capacity_source_intermediate = self.g_nx[source][node]['capacity']
+                capacity_intermediate_sink = self.g_nx[node][sink]['capacity']
+                flow = min(capacity_source_intermediate, capacity_intermediate_sink)
+                
+                if requested_flow:
+                    remaining_flow = int(requested_flow) - direct_flow
+                    if remaining_flow <= 0:
+                        break
+                    flow = min(flow, remaining_flow)
+                
+                if flow > 0:
+                    if source not in direct_flow_dict:
+                        direct_flow_dict[source] = {}
+                    if node not in direct_flow_dict:
+                        direct_flow_dict[node] = {}
+                    direct_flow_dict[source][node] = flow
+                    direct_flow_dict[node][sink] = flow
+                    direct_flow += flow
+
+        # If requested flow is satisfied by direct paths, return early
+        if requested_flow and direct_flow >= int(requested_flow):
+            print(f"Satisfied requested flow of {requested_flow} with direct edges.")
+            return direct_flow, direct_flow_dict
+
+        # Calculate remaining flow needed
+        remaining_requested_flow = None if requested_flow is None else int(requested_flow) - direct_flow
+
+        # Solve max flow
+        status = self.solver.solve(source_idx, sink_idx)
+        
+        if status == self.solver.OPTIMAL:
+            flow_value = int(self.solver.optimal_flow())
+            if remaining_requested_flow is not None:
+                flow_value = min(flow_value, remaining_requested_flow)
+            
+            # Build flow dictionary
+            flow_dict = {}
+            for i in range(self.solver.num_arcs()):
+                flow = int(self.solver.flow(i))
+                if flow > 0:
+                    u = self.index_to_node[self.solver.tail(i)]
+                    v = self.index_to_node[self.solver.head(i)]
+                    if u not in flow_dict:
+                        flow_dict[u] = {}
+                    flow_dict[u][v] = flow
+
+            # Combine with direct flows
+            if direct_flow_dict:
+                for u, flows in direct_flow_dict.items():
+                    if u not in flow_dict:
+                        flow_dict[u] = flows.copy()
+                    else:
+                        for v, f in flows.items():
+                            flow_dict[u][v] = flow_dict[u].get(v, 0) + f
+
+            return flow_value + direct_flow, flow_dict
+        else:
+            raise RuntimeError("OR-Tools solver failed to find optimal solution")
+
+    def flow_decomposition(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str, 
+                          requested_flow: Optional[int] = None) -> Tuple[List[Tuple[List[str], List[str], int]], Dict[Tuple[str, str], int]]:
+        """
+        Decompose the flow into paths from source to sink.
+        
+        Args:
+            flow_dict: Flow dictionary from compute_flow
+            source: Source node ID
+            sink: Sink node ID
+            requested_flow: Optional flow limit
+            
+        Returns:
+            Tuple containing:
+            - List of (path, path_labels, flow_value) tuples
+            - Dictionary of edge flows
+        """
+        paths = []
+        edge_flows = {}
+        current_flow = 0
+        
+        # Build residual flow graph
+        residual_flow = {u: dict(flows) for u, flows in flow_dict.items()}
+        
+        while True:
+            # Find a path from source to sink with positive flow
+            path = self._find_flow_path(residual_flow, source, sink)
+            if not path:
+                break
+                
+            # Find minimum flow along the path
+            path_flow = min(residual_flow[u][v] for u, v in zip(path[:-1], path[1:]))
+            
+            if requested_flow is not None:
+                remaining_flow = requested_flow - current_flow
+                if remaining_flow <= 0:
+                    break
+                path_flow = min(path_flow, remaining_flow)
+            
+            # Extract path labels
+            path_labels = []
+            for u, v in zip(path[:-1], path[1:]):
+                edge_data = self.get_edge_data(u, v)
+                path_labels.append(edge_data.get('label', 'no_label'))
+                
+                # Update edge flows
+                edge_flows[(u, v)] = edge_flows.get((u, v), 0) + path_flow
+            
+            # Update residual graph
+            for u, v in zip(path[:-1], path[1:]):
+                residual_flow[u][v] -= path_flow
+                if residual_flow[u][v] == 0:
+                    del residual_flow[u][v]
+                if not residual_flow[u]:
+                    del residual_flow[u]
+            
+            paths.append((path, path_labels, path_flow))
+            current_flow += path_flow
+            
+            if requested_flow is not None and current_flow >= requested_flow:
+                break
+        
+        return paths, edge_flows
+
+    def _find_flow_path(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str) -> List[str]:
+        """Find a path with positive flow from source to sink."""
+        visited = {source}
+        path = [source]
+        stack = [(source, iter(flow_dict.get(source, {}).items()))]
+        
+        while stack:
+            current, edges = stack[-1]
+            try:
+                next_node, flow = next(edges)
+                if flow > 0 and next_node not in visited:
+                    if next_node == sink:
+                        path.append(next_node)
+                        return path
+                    visited.add(next_node)
+                    path.append(next_node)
+                    stack.append((next_node, iter(flow_dict.get(next_node, {}).items())))
+            except StopIteration:
+                stack.pop()
+                if path:
+                    path.pop()
+        
+        return []
+
+    def simplified_flow_decomposition(self, original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
+        """Create simplified paths by removing intermediate nodes."""
         simplified_paths = []
         for path, labels, flow in original_paths:
-            simplified_path = [node for node in path if '_' not in node]
-            simplified_labels = [label for node, label in zip(path[1:], labels) if '_' not in node]
+            simplified_path = []
+            simplified_labels = []
+            current_token = None
+            
+            for i, (node, label) in enumerate(zip(path, labels + [None])):
+                if '_' not in node:
+                    if current_token is None or label != current_token:
+                        if simplified_path:
+                            simplified_path.append(node)
+                            simplified_labels.append(current_token)
+                        else:
+                            simplified_path = [node]
+                        current_token = label
+                    elif i == len(path) - 1:
+                        simplified_path.append(node)
+                        simplified_labels.append(current_token)
+                        
             if len(simplified_path) > 1:
                 simplified_paths.append((simplified_path, simplified_labels, flow))
+        
         return simplified_paths

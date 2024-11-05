@@ -11,7 +11,7 @@ from .postgres_component import (
 from .analysis_component import AnalysisComponent 
 from .visualization_component import VisualizationComponent
 from src.graph_manager import GraphManager
-from src.graph import NetworkXGraph, GraphToolGraph
+from src.graph import NetworkXGraph, GraphToolGraph, ORToolsGraph
 
 class NetworkFlowDashboard:
     def __init__(self):
@@ -78,28 +78,31 @@ class NetworkFlowDashboard:
             self.analysis.init_status.object = "Initializing graph..."
             self.analysis.init_status.styles = {'color': 'blue'}
             
-            # Get active data source component
             active_source = self._get_active_data_source()
-            
-            # Get configuration
             config = active_source.get_configuration()
+            
             if not config:
                 raise ValueError("No valid configuration available")
             
-            # Initialize graph manager
-            self.graph_manager = GraphManager(
-                config,
-                'networkx' if self.analysis.graph_library == 'NetworkX' else 'graph_tool'
-            )
+            # Map graph library selection to implementation
+            graph_type_map = {
+                'NetworkX': 'networkx',
+                'graph-tool': 'graph_tool',
+                'OR-Tools': 'ortools'
+            }
             
-            # Initialize visualization (this will now show the initial network view)
+            graph_type = graph_type_map.get(self.analysis.graph_library)
+            if not graph_type:
+                raise ValueError(f"Unsupported graph library: {self.analysis.graph_library}")
+            
+            # Initialize graph manager with selected implementation
+            self.graph_manager = GraphManager(config, graph_type)
+            
+            # Initialize visualization
             self.visualization.initialize_graph(self.graph_manager)
             
-            # Update status indicators
             self.analysis.init_status.object = "Graph initialized successfully"
             self.analysis.init_status.styles = {'color': 'green'}
-            
-            # Enable analysis inputs
             self.analysis.enable_analysis_inputs(True)
             
         except Exception as e:
