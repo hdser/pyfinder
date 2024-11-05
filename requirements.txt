@@ -7,6 +7,10 @@ matplotlib==3.8.3
 pandas==2.2.1
 param==2.0.2
 python-dotenv==1.0.1
+ortools==9.11.4210
+python-louvain==0.16
+sqlalchemy==2.0.36
+psycopg2==2.9.10
 
 # Data processing
 tornado==6.4

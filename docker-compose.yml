@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   pyfinder:
     build: 
@@ -16,11 +14,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 16G
         reservations:
-          memory: 1G
-    command: python run.py
-    # Add restart policy
+          memory: 12G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5006"]

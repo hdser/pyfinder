@@ -166,19 +166,32 @@ def write_transaction_info(flow_value, execution_time, simplified_paths, simplif
     print(f"Transaction information has been written to {filename}")
 
 def run_mode(graph_manager: GraphManager):
-    algorithms = {
-        '1': ('Preflow Push', preflow_push if isinstance(graph_manager.graph, NetworkXGraph) else gt_push_relabel),
-        '2': ('Edmonds-Karp', edmonds_karp if isinstance(graph_manager.graph, NetworkXGraph) else gt_edmonds_karp),
-        '3': ('Shortest Augmenting Path', shortest_augmenting_path if isinstance(graph_manager.graph, NetworkXGraph) else None),
-        '4': ('Boykov-Kolmogorov', boykov_kolmogorov if isinstance(graph_manager.graph, NetworkXGraph) else gt_boykov_kolmogorov),
-        '5': ('Dinitz', dinitz if isinstance(graph_manager.graph, NetworkXGraph) else None),
-    }
+    """Run mode with proper handling of OR-Tools implementation."""
+    
+    # Define algorithms based on implementation type
+    if isinstance(graph_manager.graph, NetworkXGraph):
+        algorithms = {
+            '1': ('Preflow Push', preflow_push),
+            '2': ('Edmonds-Karp', edmonds_karp),
+            '3': ('Shortest Augmenting Path', shortest_augmenting_path),
+            '4': ('Boykov-Kolmogorov', boykov_kolmogorov),
+            '5': ('Dinitz', dinitz),
+        }
+    elif isinstance(graph_manager.graph, GraphToolGraph):
+        algorithms = {
+            '1': ('Push-Relabel', gt_push_relabel),
+            '2': ('Edmonds-Karp', gt_edmonds_karp),
+            '3': ('Boykov-Kolmogorov', gt_boykov_kolmogorov),
+        }
+    else:  # OR-Tools
+        algorithms = {
+            '1': ('OR-Tools Max Flow', None),  # OR-Tools uses its own algorithm
+        }
 
     while True:
         print("\nChoose an algorithm:")
-        for key, (name, func) in algorithms.items():
-            if func is not None:
-                print(f"{key}. {name}")
+        for key, (name, _) in algorithms.items():
+            print(f"{key}. {name}")
         print("q. Quit")
 
         choice = input("Enter your choice: ")
@@ -186,7 +199,7 @@ def run_mode(graph_manager: GraphManager):
         if choice.lower() == 'q':
             break
 
-        if choice not in algorithms or algorithms[choice][1] is None:
+        if choice not in algorithms:
             print("Invalid choice. Please try again.")
             continue
 
@@ -212,7 +225,12 @@ def run_mode(graph_manager: GraphManager):
             signal.alarm(300)  # Set timeout to 5 minutes
 
             start_time = time.time()
-            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = graph_manager.analyze_flow(source, sink, algo_func, requested_flow)
+            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = graph_manager.analyze_flow(
+                source=source,
+                sink=sink,
+                flow_func=algo_func,  # Will be None for OR-Tools
+                cutoff=requested_flow
+            )
             end_time = time.time()
             execution_time = end_time - start_time
 
@@ -226,13 +244,23 @@ def run_mode(graph_manager: GraphManager):
                 if int(flow_value) < int(requested_flow):
                     print("Note: Achieved flow is less than requested flow.")
 
+            # Create output directory if it doesn't exist
             output_dir = 'output'
             os.makedirs(output_dir, exist_ok=True)
+            
+            # Save visualization
             graph_manager.visualize_flow(simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)
             print(f"\nVisualization saved in the '{output_dir}' directory.")
 
-            write_transaction_info(flow_value, execution_time, simplified_paths, simplified_edge_flows, 
-                                 graph_manager.data_ingestion.id_to_address, output_dir)
+            # Write detailed transaction info
+            write_transaction_info(
+                flow_value, 
+                execution_time, 
+                simplified_paths, 
+                simplified_edge_flows, 
+                graph_manager.data_ingestion.id_to_address, 
+                output_dir
+            )
 
         except TimeoutError:
             print("Flow computation timed out after 5 minutes.")
@@ -243,15 +271,23 @@ def run_mode(graph_manager: GraphManager):
             traceback.print_exc()
 
 def benchmark_mode(graph_manager: GraphManager):
-    algorithms = [
-        ('Preflow Push', preflow_push if isinstance(graph_manager.graph, NetworkXGraph) else gt_push_relabel),
-        ('Edmonds-Karp', edmonds_karp if isinstance(graph_manager.graph, NetworkXGraph) else gt_edmonds_karp),
-        ('Shortest Augmenting Path', shortest_augmenting_path if isinstance(graph_manager.graph, NetworkXGraph) else None),
-        ('Boykov-Kolmogorov', boykov_kolmogorov if isinstance(graph_manager.graph, NetworkXGraph) else gt_boykov_kolmogorov),
-        ('Dinitz', dinitz if isinstance(graph_manager.graph, NetworkXGraph) else None),
-    ]
-
-    results = []
+    # Define algorithms based on implementation type
+    if isinstance(graph_manager.graph, NetworkXGraph):
+        algorithms = [
+           # ('Preflow Push', preflow_push),
+            ('Edmonds-Karp', edmonds_karp),
+            ('Shortest Augmenting Path', shortest_augmenting_path),
+            ('Boykov-Kolmogorov', boykov_kolmogorov),
+            ('Dinitz', dinitz)
+        ]
+    elif isinstance(graph_manager.graph, GraphToolGraph):
+        algorithms = [
+           # ('Push-Relabel', gt_push_relabel),
+            ('Edmonds-Karp', gt_edmonds_karp),
+            ('Boykov-Kolmogorov', gt_boykov_kolmogorov)
+        ]
+    else:  # OR-Tools
+        algorithms = [('OR-Tools Max Flow', None)]
 
     print(f"\nNode information:\n{graph_manager.get_node_info()}")
 
@@ -265,10 +301,14 @@ def benchmark_mode(graph_manager: GraphManager):
         print("Invalid number entered. Defaulting to 5 pairs.")
         num_pairs = 5
 
+    # Generate source-sink pairs
     if isinstance(graph_manager.graph, NetworkXGraph):
         nodes = [node for node in graph_manager.graph.g_nx.nodes() if '_' not in str(node)]
-    else:  # GraphToolGraph
-        nodes = [str(graph_manager.graph.vertex_id[v]) for v in graph_manager.graph.g_gt.vertices() if '_' not in str(graph_manager.graph.vertex_id[v])]
+    elif isinstance(graph_manager.graph, GraphToolGraph):
+        nodes = [str(graph_manager.graph.vertex_id[v]) for v in graph_manager.graph.g_gt.vertices() 
+                if '_' not in str(graph_manager.graph.vertex_id[v])]
+    else:  # OR-Tools
+        nodes = [node for node in graph_manager.graph.node_to_index.keys() if '_' not in str(node)]
 
     source_sink_pairs = []
     while len(source_sink_pairs) < num_pairs:
@@ -277,52 +317,153 @@ def benchmark_mode(graph_manager: GraphManager):
         if source_id != sink_id:
             source_sink_pairs.append((source_id, sink_id))
 
+    # Create output directory and files
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = 'output'
+    os.makedirs(output_dir, exist_ok=True)
+    results_file = os.path.join(output_dir, f'benchmark_results_{timestamp}.csv')
+    log_file = os.path.join(output_dir, f'benchmark_log_{timestamp}.txt')
+
+    # Initialize results file with headers
+    with open(results_file, 'w', encoding='utf-8') as f:
+        f.write("Timestamp,Algorithm,Implementation,Source ID,Source Address,Sink ID,Sink Address,"
+                "Flow Value,Requested Flow,Execution Time,Num Paths,Num Transfers\n")
+
+    # Initialize log file
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"Benchmark started at: {timestamp}\n")
+        f.write(f"Implementation: {type(graph_manager.graph).__name__}\n")
+        f.write(f"Number of pairs: {num_pairs}\n")
+        f.write(f"Requested flow: {requested_flow if requested_flow else 'Max'}\n\n")
+
+    results = []
+    total_tests = len(algorithms) * len(source_sink_pairs)
+    completed = 0
+
     for algo_name, algo_func in algorithms:
-        if algo_func is None:
-            continue
+        print(f"\nTesting algorithm: {algo_name}")
+        
         for source_id, sink_id in source_sink_pairs:
             try:
                 source_address = graph_manager.data_ingestion.get_address_for_id(source_id)
                 sink_address = graph_manager.data_ingestion.get_address_for_id(sink_id)
-            except KeyError:
-                print(f"Skipping pair ({source_id}, {sink_id}): One or both IDs not found in mapping.")
-                continue
-
-            if not graph_manager.graph.has_vertex(source_id) or not graph_manager.graph.has_vertex(sink_id):
-                print(f"Skipping pair ({source_id}, {sink_id}): One or both nodes not in graph.")
-                continue
-
-            try:
+                
+                print(f"\nTest {completed + 1}/{total_tests}:")
+                print(f"Algorithm: {algo_name}")
+                print(f"Source: {source_address[:10]}...")
+                print(f"Sink: {sink_address[:10]}...")
+                
                 start_time = time.time()
-                flow_value, simplified_paths, simplified_edge_flows, _ = graph_manager.analyze_flow(source_address, sink_address, algo_func, requested_flow)
-                end_time = time.time()
-                execution_time = end_time - start_time
+                flow_value, simplified_paths, simplified_edge_flows, _ = graph_manager.analyze_flow(
+                    source_address, 
+                    sink_address, 
+                    algo_func, 
+                    requested_flow
+                )
+                execution_time = time.time() - start_time
 
-                results.append({
+                # Create and store result
+                result = {
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     'Algorithm': algo_name,
-                    'Source': source_address,
-                    'Sink': sink_address,
+                    'Implementation': type(graph_manager.graph).__name__,
+                    'Source ID': source_id,
+                    'Source Address': source_address,
+                    'Sink ID': sink_id,
+                    'Sink Address': sink_address,
                     'Flow Value': str(flow_value),
-                    'Requested Flow': requested_flow if requested_flow is not None else 'Max',
+                    'Requested Flow': requested_flow if requested_flow else 'Max',
                     'Execution Time': execution_time,
                     'Num Paths': len(simplified_paths),
                     'Num Transfers': len(simplified_edge_flows)
-                })
-            except Exception as e:
-                print(f"An error occurred for {algo_name} with source {source_address} and sink {sink_address}: {str(e)}")
+                }
+                
+                results.append(result)
+                
+                # Write result immediately to CSV
+                with open(results_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{result['Timestamp']},{result['Algorithm']},{result['Implementation']},"
+                           f"{result['Source ID']},{result['Source Address']},{result['Sink ID']},"
+                           f"{result['Sink Address']},{result['Flow Value']},{result['Requested Flow']},"
+                           f"{result['Execution Time']},{result['Num Paths']},{result['Num Transfers']}\n")
+                
+                # Write to log file
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"\nTest #{completed + 1}\n")
+                    f.write(f"Algorithm: {algo_name}\n")
+                    f.write(f"Source: {source_address}\n")
+                    f.write(f"Sink: {sink_address}\n")
+                    f.write(f"Flow Value: {flow_value}\n")
+                    f.write(f"Execution Time: {execution_time:.4f}s\n")
+                    f.write(f"Number of Paths: {len(simplified_paths)}\n")
+                    f.write(f"Number of Transfers: {len(simplified_edge_flows)}\n")
+                    f.write("-" * 50 + "\n")
 
+                print(f"Result: Flow = {flow_value}, Time = {execution_time:.4f}s")
+                print(f"Results written to {results_file}")
+                
+            except Exception as e:
+                error_msg = f"Error with {algo_name} ({source_id}→{sink_id}): {str(e)}"
+                print(error_msg)
+                
+                # Log error
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"\nERROR in test #{completed + 1}\n")
+                    f.write(f"{error_msg}\n")
+                    f.write(f"Stack trace:\n{traceback.format_exc()}\n")
+                    f.write("-" * 50 + "\n")
+            
+            completed += 1
+
+    # Write final summary
     if results:
         df_results = pd.DataFrame(results)
-        print("\nBenchmark Results:")
-        print(df_results)
-
-        output_dir = 'output'
-        os.makedirs(output_dir, exist_ok=True)
-        csv_file = os.path.join(output_dir, 'benchmark_results.csv')
-        df_results.to_csv(csv_file, index=False)
-        print(f"\nBenchmark results saved to {csv_file}")
+        df_results['Flow Value'] = pd.to_numeric(df_results['Flow Value'], errors='coerce')
+        
+        # Create summary with better formatting
+        execution_stats = df_results.groupby(['Implementation', 'Algorithm'])['Execution Time'].agg([
+            ('Number of Tests', 'count'),
+            ('Mean Time (s)', 'mean'),
+            ('Std Dev (s)', 'std'),
+            ('Min Time (s)', 'min'),
+            ('Max Time (s)', 'max')
+        ]).round(4)
+        
+        flow_stats = df_results.groupby(['Implementation', 'Algorithm'])['Flow Value'].agg([
+            ('Mean Flow', 'mean'),
+            ('Min Flow', 'min'),
+            ('Max Flow', 'max')
+        ]).round(2)
+        
+        # Combine the statistics
+        summary = pd.concat([execution_stats, flow_stats], axis=1)
+        
+        # Write summary to log
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write("\nFinal Summary:\n")
+            f.write("=" * 50 + "\n")
+            f.write("\nExecution Time Statistics:\n")
+            f.write(execution_stats.to_string())
+            f.write("\n\nFlow Statistics:\n")
+            f.write(flow_stats.to_string())
+                
+        # Save summary to CSV with better formatting
+        summary_file = os.path.join(output_dir, f'benchmark_summary_{timestamp}.csv')
+        
+        # Format for CSV
+        summary.to_csv(summary_file)
+        
+        # Display in console with better formatting
+        print("\nExecution Time Statistics:")
+        print(execution_stats)
+        print("\nFlow Statistics:")
+        print(flow_stats)
+        
+        print(f"\nResults saved to: {results_file}")
+        print(f"Summary saved to: {summary_file}")
+        print(f"Log file saved to: {log_file}")
     else:
-        print("No valid results to display. Please check your source-sink pairs and graph structure.")
+        print("No valid results to display.")
 
 def compare_libraries_mode(networkx_graph_manager: GraphManager, graphtool_graph_manager: GraphManager):
     algorithms = {
@@ -419,9 +560,20 @@ def main():
     print("Choose graph library:")
     print("1. NetworkX")
     print("2. graph-tool")
-    graph_library_choice = input("Enter your choice (1 or 2): ")
+    print("3. OR-Tools")
+    graph_library_choice = input("Enter your choice (1-3): ")
     
-    graph_library = 'networkx' if graph_library_choice == '1' else 'graph_tool'
+    library_map = {
+        '1': 'networkx',
+        '2': 'graph_tool',
+        '3': 'ortools'
+    }
+    
+    if graph_library_choice not in library_map:
+        print("Invalid choice. Using NetworkX as default.")
+        graph_library = 'networkx'
+    else:
+        graph_library = library_map[graph_library_choice]
     
     try:
         # If data_source is a dictionary, it's PostgreSQL config
@@ -436,9 +588,12 @@ def main():
         if isinstance(graph_manager.graph, NetworkXGraph):
             print(f"Number of nodes in graph: {graph_manager.graph.g_nx.number_of_nodes()}")
             print(f"Number of edges in graph: {graph_manager.graph.g_nx.number_of_edges()}")
-        else:  # GraphToolGraph
+        elif isinstance(graph_manager.graph, GraphToolGraph):
             print(f"Number of nodes in graph: {graph_manager.graph.g_gt.num_vertices()}")
             print(f"Number of edges in graph: {graph_manager.graph.g_gt.num_edges()}")
+        else:  # ORToolsGraph
+            print(f"Number of nodes in graph: {len(graph_manager.graph.node_to_index)}")
+            print(f"Number of edges in graph: {graph_manager.graph.solver.num_arcs()}")
 
         mode = input("\nChoose mode (1: Run, 2: Benchmark, 3: Compare Libraries): ")
 
@@ -447,9 +602,13 @@ def main():
         elif mode == '2':
             benchmark_mode(graph_manager)
         elif mode == '3':
-            networkx_graph_manager = GraphManager(data_source, 'networkx')
-            graphtool_graph_manager = GraphManager(data_source, 'graph_tool')
-            compare_libraries_mode(networkx_graph_manager, graphtool_graph_manager)
+            # Create managers for each implementation
+            implementations = {
+                'networkx': GraphManager(data_source, 'networkx'),
+                'graph_tool': GraphManager(data_source, 'graph_tool'),
+                'ortools': GraphManager(data_source, 'ortools')
+            }
+            compare_implementations_mode(implementations)
         else:
             print("Invalid mode selection. Exiting.")
             
@@ -458,6 +617,233 @@ def main():
         import traceback
         traceback.print_exc()
         return
+
+
+def compare_implementations_mode(implementations: Dict[str, GraphManager]):
+    """Compare performance across all implementations with immediate result writing."""
+    algorithms = {
+        'networkx': [
+            ('Preflow Push', preflow_push),
+            ('Edmonds-Karp', edmonds_karp),
+            ('Shortest Augmenting Path', shortest_augmenting_path),
+            ('Boykov-Kolmogorov', boykov_kolmogorov),
+            ('Dinitz', dinitz),
+        ],
+        'graph_tool': [
+            ('Push-Relabel', gt_push_relabel),
+            ('Edmonds-Karp', gt_edmonds_karp),
+            ('Boykov-Kolmogorov', gt_boykov_kolmogorov),
+        ],
+        'ortools': [
+            ('OR-Tools Max Flow', None),
+        ]
+    }
+
+    num_pairs_input = input("Enter the number of random source-sink pairs to test: ")
+    try:
+        num_pairs = int(num_pairs_input)
+    except ValueError:
+        print("Invalid number entered. Defaulting to 5 pairs.")
+        num_pairs = 5
+
+    # Create output files
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = 'output'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    results_file = os.path.join(output_dir, f'comparison_results_{timestamp}.csv')
+    log_file = os.path.join(output_dir, f'comparison_log_{timestamp}.txt')
+
+    # Write headers
+    with open(results_file, 'w', encoding='utf-8') as f:
+        f.write("Timestamp,Implementation,Algorithm,Source,Sink,Flow Value,"
+                "Requested Flow,Execution Time,Num Paths,Num Transfers\n")
+
+    # Initialize log
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"Comparison started at: {timestamp}\n")
+        f.write(f"Number of pairs: {num_pairs}\n")
+        f.write(f"Implementations: {', '.join(implementations.keys())}\n\n")
+
+    # Select node pairs
+    networkx_manager = implementations['networkx']
+    nodes = [node for node in networkx_manager.graph.g_nx.nodes() if '_' not in str(node)]
+    
+    source_sink_pairs = []
+    while len(source_sink_pairs) < num_pairs:
+        source_id = random.choice(nodes)
+        sink_id = random.choice(nodes)
+        if source_id != sink_id:
+            source_sink_pairs.append((source_id, sink_id))
+
+    total_tests = sum(len(algos) for algos in algorithms.values()) * len(source_sink_pairs) * 3
+    completed = 0
+    
+    results = []
+    current_summary = pd.DataFrame()
+
+    for source_id, sink_id in source_sink_pairs:
+        source_address = networkx_manager.data_ingestion.get_address_for_id(source_id)
+        sink_address = networkx_manager.data_ingestion.get_address_for_id(sink_id)
+
+        print(f"\nTesting pair {len(results) // (len(algorithms) * 3) + 1}/{num_pairs}:")
+        print(f"Source: {source_address[:10]}...")
+        print(f"Sink: {sink_address[:10]}...")
+
+        for trial in range(3):
+            requested_flow = random.randint(1000, 1000000)
+            
+            for impl_name, graph_manager in implementations.items():
+                for algo_name, algo_func in algorithms[impl_name]:
+                    try:
+                        print(f"\nTest {completed + 1}/{total_tests}:")
+                        print(f"Implementation: {impl_name}")
+                        print(f"Algorithm: {algo_name}")
+                        print(f"Trial: {trial + 1}/3")
+
+                        start_time = time.time()
+                        flow_value, simplified_paths, simplified_edge_flows, _ = graph_manager.analyze_flow(
+                            source_address, 
+                            sink_address, 
+                            algo_func, 
+                            str(requested_flow)
+                        )
+                        execution_time = time.time() - start_time
+
+                        result = {
+                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'Implementation': impl_name,
+                            'Algorithm': algo_name,
+                            'Source': source_address,
+                            'Sink': sink_address,
+                            'Flow Value': str(flow_value),
+                            'Requested Flow': str(requested_flow),
+                            'Execution Time': execution_time,
+                            'Num Paths': len(simplified_paths),
+                            'Num Transfers': len(simplified_edge_flows)
+                        }
+                        
+                        results.append(result)
+                        
+                        # Write result immediately
+                        with open(results_file, 'a', encoding='utf-8') as f:
+                            f.write(f"{result['Timestamp']},{result['Implementation']},"
+                                   f"{result['Algorithm']},{result['Source']},"
+                                   f"{result['Sink']},{result['Flow Value']},"
+                                   f"{result['Requested Flow']},{result['Execution Time']},"
+                                   f"{result['Num Paths']},{result['Num Transfers']}\n")
+                        
+                        # Write to log
+                        with open(log_file, 'a', encoding='utf-8') as f:
+                            f.write(f"\nTest #{completed + 1}\n")
+                            f.write(f"Implementation: {impl_name}\n")
+                            f.write(f"Algorithm: {algo_name}\n")
+                            f.write(f"Trial: {trial + 1}\n")
+                            f.write(f"Flow Value: {flow_value}\n")
+                            f.write(f"Execution Time: {execution_time:.4f}s\n")
+                            f.write("-" * 50 + "\n")
+
+                        print(f"Result: Flow = {flow_value}, Time = {execution_time:.4f}s")
+                        
+                        # Update and display running summary
+                        if len(results) > 0:
+                            df = pd.DataFrame(results)
+                            current_summary = df.groupby(['Implementation', 'Algorithm']).agg({
+                                'Execution Time': ['count', 'mean', 'std', 'min', 'max']
+                            }).round(4)
+                            
+                            print("\nRunning Summary:")
+                            print(current_summary)
+
+                    except Exception as e:
+                        error_msg = f"Error with {impl_name} {algo_name}: {str(e)}"
+                        print(error_msg)
+                        
+                        # Log error
+                        with open(log_file, 'a', encoding='utf-8') as f:
+                            f.write(f"\nERROR in test #{completed + 1}\n")
+                            f.write(f"{error_msg}\n")
+                            f.write(f"Stack trace:\n{traceback.format_exc()}\n")
+                            f.write("-" * 50 + "\n")
+                    
+                    completed += 1
+                    print(f"Progress: {completed}/{total_tests} tests completed")
+
+    # Write final results and summaries
+    if results:
+        df_results = pd.DataFrame(results)
+        df_results['Flow Value'] = pd.to_numeric(df_results['Flow Value'], errors='coerce')
+        
+        # Create execution time statistics
+        execution_stats = df_results.groupby(['Implementation', 'Algorithm'])['Execution Time'].agg([
+            ('Number of Tests', 'count'),
+            ('Mean Time (s)', 'mean'),
+            ('Std Dev (s)', 'std'),
+            ('Min Time (s)', 'min'),
+            ('Max Time (s)', 'max')
+        ]).round(4)
+        
+        # Create flow statistics
+        flow_stats = df_results.groupby(['Implementation', 'Algorithm'])['Flow Value'].agg([
+            ('Mean Flow', 'mean'),
+            ('Min Flow', 'min'),
+            ('Max Flow', 'max')
+        ]).round(2)
+        
+        # Create path statistics
+        path_stats = df_results.groupby(['Implementation', 'Algorithm']).agg({
+            'Num Paths': ['mean', 'min', 'max'],
+            'Num Transfers': ['mean', 'min', 'max']
+        }).round(2)
+        
+        # Write detailed summary to log
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write("\nFinal Summary:\n")
+            f.write("=" * 50 + "\n")
+            f.write("\nExecution Time Statistics:\n")
+            f.write(execution_stats.to_string())
+            f.write("\n\nFlow Statistics:\n")
+            f.write(flow_stats.to_string())
+            f.write("\n\nPath Statistics:\n")
+            f.write(path_stats.to_string())
+            f.write("\n\nPerformance Rankings:\n")
+            f.write("-" * 50 + "\n")
+            
+            # Add rankings
+            rankings = df_results.groupby(['Implementation', 'Algorithm'])['Execution Time'].mean().sort_values()
+            for i, (idx, val) in enumerate(rankings.items(), 1):
+                impl, algo = idx
+                f.write(f"{i}. {impl} - {algo}: {val:.4f}s\n")
+        
+        # Save individual statistics files
+        stats_dir = os.path.join(output_dir, f'comparison_stats_{timestamp}')
+        os.makedirs(stats_dir, exist_ok=True)
+        
+        execution_stats.to_csv(os.path.join(stats_dir, 'execution_stats.csv'))
+        flow_stats.to_csv(os.path.join(stats_dir, 'flow_stats.csv'))
+        path_stats.to_csv(os.path.join(stats_dir, 'path_stats.csv'))
+        
+        # Display results
+        print("\nExecution Time Statistics:")
+        print(execution_stats)
+        print("\nFlow Statistics:")
+        print(flow_stats)
+        print("\nTop Performers (by average execution time):")
+        print(rankings.head())
+        
+        print(f"\nFiles saved:")
+        print(f"- Detailed results: {results_file}")
+        print(f"- Statistics: {stats_dir}/")
+        print(f"- Log file: {log_file}")
+        
+        #return {
+        #    'results': results_file,
+        #    'stats_dir': stats_dir,
+        #    'log': log_file
+        #}
+    else:
+        print("No valid results to display.")
+        #return None
 
 if __name__ == "__main__":
     main()

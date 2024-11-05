@@ -92,17 +92,41 @@ class GraphManager:
 
     def get_node_info(self):
         """Get information about nodes in the graph."""
-        if isinstance(self.graph, NetworkXGraph):
-            nodes = list(self.graph.g_nx.nodes())
-        else:  # GraphToolGraph
-            nodes = list(self.graph.id_to_vertex.keys())
-        
-        sample_nodes = random.sample(nodes, min(5, len(nodes)))
-        sample_info = []
-        for node in sample_nodes:
-            if '_' in str(node):
-                sample_info.append(f"Intermediate Node: {node}")
-            else:
-                address = self.data_ingestion.get_address_for_id(str(node))
-                sample_info.append(f"Node ID: {node}, Address: {address}")
-        return f"Total nodes: {len(nodes)}\nSample nodes:\n" + "\n".join(sample_info)
+        try:
+            if isinstance(self.graph, NetworkXGraph):
+                nodes = list(self.graph.g_nx.nodes())
+            elif isinstance(self.graph, GraphToolGraph):
+                nodes = list(self.graph.id_to_vertex.keys())
+            else:  # ORToolsGraph
+                nodes = list(self.graph.node_to_index.keys())
+
+            sample_nodes = random.sample(nodes, min(5, len(nodes)))
+            sample_info = []
+            
+            for node in sample_nodes:
+                if '_' in str(node):
+                    sample_info.append(f"Intermediate Node: {node}")
+                else:
+                    address = self.data_ingestion.get_address_for_id(str(node))
+                    sample_info.append(f"Node ID: {node}, Address: {address}")
+                    
+            # Get total node counts based on implementation
+            if isinstance(self.graph, NetworkXGraph):
+                total_nodes = self.graph.g_nx.number_of_nodes()
+                total_edges = self.graph.g_nx.number_of_edges()
+            elif isinstance(self.graph, GraphToolGraph):
+                total_nodes = self.graph.g_gt.num_vertices()
+                total_edges = self.graph.g_gt.num_edges()
+            else:  # ORToolsGraph
+                total_nodes = len(self.graph.node_to_index)
+                total_edges = self.graph.solver.num_arcs()
+                
+            return (f"Total nodes: {total_nodes}\n"
+                    f"Total edges: {total_edges}\n"
+                    f"Sample nodes:\n" + 
+                    "\n".join(sample_info))
+                    
+        except Exception as e:
+            return f"Error getting node info: {str(e)}\n" + \
+                f"Total nodes: {len(self.graph.node_to_index)}\n" + \
+                f"Total edges: {self.graph.solver.num_arcs()}"

@@ -1,15 +1,18 @@
-# Use slim Python 3.11 Bookworm image
-FROM python:3.11-slim-bookworm
+# Use Ubuntu 22.04 as base image
+FROM ubuntu:22.04
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/root/miniconda3/bin:${PATH}"
+ENV PYTHONPATH=/app
 
-# Install system dependencies including graph-tool from default repositories
+# Install system dependencies and add Ubuntu 23.04's repository for newer libstdc++
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    ca-certificates \
     gcc \
     g++ \
-    python3-dev \
-    python3-graph-tool \
     libpq-dev \
     libjpeg-dev \
     zlib1g-dev \
@@ -18,29 +21,50 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libtk8.6 \
     tk-dev \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    gnupg \
+    && echo "deb http://ports.ubuntu.com/ubuntu-ports lunar main restricted universe multiverse" > /etc/apt/sources.list.d/lunar.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends -t lunar libstdc++6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm /etc/apt/sources.list.d/lunar.list
+
+# Install Miniconda
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh -O ~/miniconda.sh && \
+    bash ~/miniconda.sh -b -p /root/miniconda3 && \
+    rm ~/miniconda.sh
+
+# Create conda environment
+RUN conda create -n pyfinder python=3.11 -y
+
+# Install graph-tool and other conda dependencies, including libstdcxx-ng
+RUN conda run -n pyfinder conda install -c conda-forge \
+    graph-tool \
+    numpy \
+    pandas \
+    networkx \
+    libstdcxx-ng \
+    -y
+
+# Set LD_LIBRARY_PATH to prioritize Conda's lib directory
+ENV LD_LIBRARY_PATH="/root/miniconda3/envs/pyfinder/lib:${LD_LIBRARY_PATH}"
 
 # Set working directory
 WORKDIR /app
 
-# Upgrade pip and install wheel and setuptools
-RUN pip install --no-cache-dir --upgrade pip wheel setuptools
+# Install Python dependencies
+RUN conda run -n pyfinder pip install --no-cache-dir --upgrade pip wheel setuptools
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
-
-# Install Python dependencies with verbose output
-RUN pip install --no-cache-dir -v -r requirements.txt
+RUN sed -i '/graph-tool/d' requirements.txt
+RUN conda run -n pyfinder pip install --no-cache-dir -v -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
 
-# Make port 5006 available
+# Expose port for the application
 EXPOSE 5006
 
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
-
-# Run the application
-CMD ["python", "run.py"]
+# Command to run the application
+CMD ["conda", "run", "-n", "pyfinder", "python", "run.py"]
