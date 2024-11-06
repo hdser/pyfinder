@@ -106,7 +106,7 @@ class AnalysisComponent(BaseComponent):
         )
 
 
-        self._update_implementation_status(self.graph_library)
+       # self._update_implementation_status(self.graph_library)
 
     def _setup_callbacks(self):
         """Set up component callbacks."""
@@ -117,10 +117,10 @@ class AnalysisComponent(BaseComponent):
         self.flow_input.link(self, value='requested_flow_mCRC')
         self.algorithm_select.link(self, value='algorithm')
 
-        self.library_select.param.watch(
-            lambda event: self._update_implementation_status(event.new), 
-            'value'
-        )
+       # self.library_select.param.watch(
+       #     lambda event: self._update_implementation_status(event.new), 
+       #     'value'
+       # )
 
     def _update_implementation_status(self, library: str):
         """Update the implementation-specific status message."""
@@ -160,8 +160,8 @@ class AnalysisComponent(BaseComponent):
             self.algorithm_select.options = algorithms
             self.algorithm_select.value = algorithms[0]
 
-        if hasattr(self, 'implementation_status'):
-            self._update_implementation_status(event.new)
+        #if hasattr(self, 'implementation_status'):
+        #    self._update_implementation_status(event.new)
 
 
     def get_algorithm_list(self):
