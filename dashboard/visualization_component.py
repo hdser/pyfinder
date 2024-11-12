@@ -9,14 +9,12 @@ from src.graph import NetworkXGraph, GraphToolGraph
 
 from .base_component import BaseComponent
 from .interactive_visualization import InteractiveVisualization
-from .large_network_visualization import LargeNetworkVisualization
 
 class VisualizationComponent(BaseComponent):
     """Component for visualizing network flow analysis results."""
     
     def __init__(self, **params):
         self.interactive_viz = InteractiveVisualization()
-        self.large_network_viz = LargeNetworkVisualization()
         self.full_network_plot = None
         self.graph_manager = None
         super().__init__(**params)
@@ -38,19 +36,7 @@ class VisualizationComponent(BaseComponent):
             sizing_mode='stretch_width'
         )
         
-        # Network visualization controls
-        self.detail_level = pn.widgets.Select(
-            name='Node Display Limit',
-            options=[
-                'Very Low (100 nodes)',
-                'Low (500 nodes)',
-                'Medium (1000 nodes)',
-                'High (2000 nodes)',
-                'Full (All nodes)'
-            ],
-            value='Very Low (100 nodes)',
-            width=200
-        )
+       
 
         self.refresh_button = pn.widgets.Button(
             name="↻ Refresh View",
@@ -152,8 +138,6 @@ class VisualizationComponent(BaseComponent):
         self.network_content = pn.Column(
             self.network_stats,
             pn.Row(
-                self.detail_level,
-                self.refresh_button,
                 self.network_load_progress,
                 align='center',
                 margin=(10, 10)
@@ -190,32 +174,12 @@ class VisualizationComponent(BaseComponent):
 
     def _setup_callbacks(self):
         """Set up component callbacks."""
-        self.detail_level.param.watch(self._update_detail_level, 'value')
-        self.refresh_button.on_click(self._refresh_network_view)
-
+        self._update_detail_level()
     
-    def _update_detail_level(self, event):
-        """Update the visualization detail level with fixed node counts."""
-        if not self.graph_manager or not self.large_network_viz:
-            return
-            
-        try:
-            # Extract the level key from the selection
-            level_key = event.new.split(' ')[0]  # 'Very Low', 'Low', etc.
-            
-            # Update the node limit in the visualization
-            self.large_network_viz.set_node_limit(level_key)
-            
-            # Trigger a refresh with new layout
-            self._refresh_network_view()
-            
-        except Exception as e:
-            print(f"Error updating detail level: {str(e)}")
-            self._show_error(f"Failed to update visualization level: {str(e)}")
-
-    def _refresh_network_view(self, event=None):
+   
+    def _update_detail_level(self, event=None):
         """Refresh the network visualization with current settings."""
-        if not self.graph_manager or not self.large_network_viz:
+        if not self.graph_manager:
             return
             
         try:
@@ -248,11 +212,7 @@ class VisualizationComponent(BaseComponent):
             
             self.network_load_progress.value = 40
             
-            # Create new network view
-            new_plot = self.large_network_viz.create_initial_view(
-                nx_graph,
-                self.graph_manager.data_ingestion.id_to_address
-            )
+            
             
             self.network_load_progress.value = 80
             
@@ -266,16 +226,10 @@ class VisualizationComponent(BaseComponent):
                             css_classes=['section-title']),
                 self.network_stats,
                 pn.Row(
-                    self.detail_level,
-                    self.refresh_button,
                     self.network_load_progress,
                     align='center',
                     css_classes=['network-controls']
                 ),
-                pn.pane.Bokeh(new_plot,
-                             sizing_mode='stretch_width',
-                             height=500,
-                             margin=(0, 0, 5, 0)),
                 sizing_mode='stretch_width',
                 css_classes=['section-content']
             )
@@ -369,16 +323,11 @@ class VisualizationComponent(BaseComponent):
             
             self.network_load_progress.value = 40
             
-            # Create initial network view
-            new_plot = self.large_network_viz.create_initial_view(
-                nx_graph,
-                graph_manager.data_ingestion.id_to_address
-            )
             
             self.network_load_progress.value = 80
             
             # Update the graph pane
-            self.full_graph_pane.object = new_plot
+            #self.full_graph_pane.object = new_plot
             self.full_graph_pane.param.trigger('object')
             
             self._update_network_stats(nx_graph)
@@ -628,8 +577,6 @@ class VisualizationComponent(BaseComponent):
                         css_classes=['section-title']),
             self.network_stats,
             pn.Row(
-                self.detail_level,
-                self.refresh_button,
                 self.network_load_progress,
                 align='center',
                 css_classes=['network-controls']
