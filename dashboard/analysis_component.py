@@ -168,7 +168,7 @@ class AnalysisComponent(BaseComponent):
         """Get list of algorithms based on selected graph library."""
         if self.graph_library == 'NetworkX':
             return [
-                "Default (Preflow Push)",
+                "Preflow Push",
                 "Edmonds-Karp",
                 "Shortest Augmenting Path",
                 "Boykov-Kolmogorov",
@@ -176,7 +176,7 @@ class AnalysisComponent(BaseComponent):
             ]
         elif self.graph_library == 'graph-tool':
             return [
-                "Default (Push-Relabel)",
+               # "Push-Relabel",
                 "Edmonds-Karp",
                 "Boykov-Kolmogorov"
             ]
@@ -187,7 +187,7 @@ class AnalysisComponent(BaseComponent):
         """Get the algorithm function based on selected algorithm."""
         if self.graph_library == 'NetworkX':
             algorithm_map = {
-                "Default (Preflow Push)": preflow_push,
+                "Preflow Push": preflow_push,
                 "Edmonds-Karp": edmonds_karp,
                 "Shortest Augmenting Path": shortest_augmenting_path,
                 "Boykov-Kolmogorov": boykov_kolmogorov,
@@ -196,7 +196,7 @@ class AnalysisComponent(BaseComponent):
             return algorithm_map[self.algorithm]
         elif self.graph_library == 'graph-tool':
             algorithm_map = {
-                "Default (Push-Relabel)": gt_push_relabel,
+              #  "Push-Relabel": gt_push_relabel,
                 "Edmonds-Karp": gt_edmonds_karp,
                 "Boykov-Kolmogorov": gt_boykov_kolmogorov
             }

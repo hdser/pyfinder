@@ -329,6 +329,77 @@ class InteractiveVisualization:
                 pos[node] = (x, y)
 
         return pos
+    
+    def _hierarchical_layout2(self, G: nx.DiGraph, source: str, sink: str,
+                        horizontal_spacing: float = 5.0,
+                        vertical_spacing: float = 2.0) -> Dict[str, Tuple[float, float]]:
+        """
+        Calculate hierarchical layout with proper node positioning.
+        Uses BFS to assign ranks instead of DAG-specific algorithms.
+        """
+        from collections import deque, defaultdict
+        
+        def get_node_rank_bfs(node: str) -> int:
+            """Calculate node rank using BFS from source."""
+            if node == source:
+                return 0
+            elif node == sink:
+                return max_rank if max_rank > 0 else len(G)
+                
+            queue = deque([(source, 0)])
+            visited = {source}
+            min_rank = len(G)  # Default to maximum possible rank
+            
+            while queue:
+                current, rank = queue.popleft()
+                if current == node:
+                    min_rank = min(min_rank, rank)
+                
+                for neighbor in G.neighbors(current):
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append((neighbor, rank + 1))
+            
+            return min_rank if min_rank < len(G) else len(G) // 2
+        
+        # First pass: get approximate max rank using BFS
+        max_rank = 0
+        visited = {source}
+        queue = deque([(source, 0)])
+        
+        while queue:
+            node, rank = queue.popleft()
+            max_rank = max(max_rank, rank)
+            
+            for neighbor in G.neighbors(node):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, rank + 1))
+        
+        # Calculate ranks for all nodes
+        ranks = {node: get_node_rank_bfs(node) for node in G.nodes()}
+        
+        # Group nodes by rank
+        nodes_by_rank = defaultdict(list)
+        for node, rank in ranks.items():
+            nodes_by_rank[rank].append(node)
+        
+        # Calculate positions with balanced distribution
+        pos = {}
+        max_nodes_per_rank = max(len(nodes) for nodes in nodes_by_rank.values())
+        
+        for rank, nodes in nodes_by_rank.items():
+            x = rank * horizontal_spacing
+            total_nodes = len(nodes)
+            
+            # Adjust vertical spacing based on number of nodes
+            effective_spacing = vertical_spacing * (max_nodes_per_rank / max(total_nodes, 1))
+            
+            for i, node in enumerate(sorted(nodes)):
+                y = (i - (total_nodes - 1) / 2) * effective_spacing
+                pos[node] = (x, y)
+        
+        return pos
         
     def _prepare_multiedge_data(self, G: nx.DiGraph, pos: Dict[str, Tuple[float, float]], 
                                edge_flows: Dict[Tuple[str, str], Dict[str, float]]) -> Dict:

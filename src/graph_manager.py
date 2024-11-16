@@ -5,7 +5,9 @@ from .data_ingestion import DataIngestion, PostgresDataIngestion
 from .graph import NetworkXGraph, GraphToolGraph, GraphCreator
 from .flow_analysis import NetworkFlowAnalysis
 from .visualization import Visualization
+from .csv_loader import CSVLoader
 import random
+import time
 
 class GraphManager:
     def __init__(self, data_source: Union[Tuple[str, str], Tuple[Dict[str, str], str]], graph_type: str = 'networkx'):
@@ -18,7 +20,10 @@ class GraphManager:
                 - Tuple[Dict[str, str], str]: (db_config, queries_dir) for PostgreSQL ingestion
             graph_type: Type of graph to create ('networkx' or 'graph_tool')
         """
+
+        start = time.time()
         self.data_ingestion = self._initialize_data_ingestion(data_source)
+        print("Ingestion time: ",time.time()-start)
         
         self.graph = GraphCreator.create_graph(
             graph_type, 

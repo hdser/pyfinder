@@ -132,6 +132,25 @@ class VisualizationComponent(BaseComponent):
         if hasattr(self, 'stats_pane'):
             self.stats_pane.object = stats
 
+    def _update_path_stats2(self, flow_value, simplified_paths, simplified_edge_flows, 
+                          original_edge_flows, computation_time, algorithm):
+        """Update the path analysis statistics."""
+        stats = f"""
+        ### Flow Analysis Results
+        
+        **Flow Information**
+        - Total Flow Value: {flow_value:,} mCRC
+        - Computation Time: {computation_time:.4f} seconds
+        - Algorithm Used: {algorithm}
+
+        **Path Analysis**
+        - Number of Distinct Paths: {len(simplified_paths)}
+        - Total Transfers: {sum(len(flows) for flows in simplified_edge_flows.values())}
+        - Original Edges: {len(original_edge_flows)}
+        - Simplified Edge Groups: {len(simplified_edge_flows)}
+        """
+        self.path_stats.object = stats
+
     def _initialize_section_contents(self):
         """Initialize the content of each collapsible section."""
         # Network section content
@@ -402,24 +421,6 @@ class VisualizationComponent(BaseComponent):
             traceback.print_exc()
             self._show_error(str(e))
 
-    def _update_path_stats(self, flow_value, simplified_paths, simplified_edge_flows, 
-                          original_edge_flows, computation_time, algorithm):
-        """Update the path analysis statistics."""
-        stats = f"""
-        ### Flow Analysis Results
-        
-        **Flow Information**
-        - Total Flow Value: {flow_value:,} mCRC
-        - Computation Time: {computation_time:.4f} seconds
-        - Algorithm Used: {algorithm}
-
-        **Path Analysis**
-        - Number of Distinct Paths: {len(simplified_paths)}
-        - Total Transfers: {sum(len(flows) for flows in simplified_edge_flows.values())}
-        - Original Edges: {len(original_edge_flows)}
-        - Simplified Edge Groups: {len(simplified_edge_flows)}
-        """
-        self.path_stats.object = stats
 
     def _create_flow_subgraph(self, graph, edge_flows):
         """Create a subgraph containing only the edges and nodes involved in the flow."""
@@ -457,6 +458,7 @@ class VisualizationComponent(BaseComponent):
         ## Flow Information
         - Total Flow Value: {flow_value:,} mCRC
         - Computation Time: {computation_time:.4f} seconds
+        - Library Used: {algorithm}
         - Algorithm Used: {algorithm}
 
         ## Path Analysis
