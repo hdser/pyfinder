@@ -65,7 +65,9 @@ class AnalysisComponent(BaseComponent):
         self.init_button = pn.widgets.Button(
             name="Initialize Graph",
             button_type="primary",
-            width=200
+            sizing_mode="fixed",
+            width=200,
+            height=40
         )
 
         # Analysis inputs (initially disabled)
@@ -102,6 +104,7 @@ class AnalysisComponent(BaseComponent):
             name="Run Analysis",
             button_type="primary",
             width=200,
+            height=40,
             disabled=True
         )
 

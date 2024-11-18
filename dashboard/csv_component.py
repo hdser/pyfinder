@@ -41,14 +41,16 @@ class CSVDataSourceComponent(param.Parameterized):
             name="Browse Directory",
             button_type="default",
             sizing_mode='fixed',
-            width=150
+            width=150,
+            height=40
         )
         
         self.default_dir_button = pn.widgets.Button(
             name="Use Default Directory",
             button_type="default",
             sizing_mode='fixed',
-            width=150
+            width=150,
+            height=40
         )
         
         self.load_button = pn.widgets.Button(
@@ -56,7 +58,8 @@ class CSVDataSourceComponent(param.Parameterized):
             button_type="primary",
             disabled=True,
             sizing_mode='fixed',
-            width=150
+            width=150,
+            height=40
         )
         
         self.trusts_info = pn.pane.Markdown("### Trust File\nNot selected")

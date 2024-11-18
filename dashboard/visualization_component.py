@@ -36,13 +36,6 @@ class VisualizationComponent(BaseComponent):
             sizing_mode='stretch_width'
         )
         
-       
-
-        self.refresh_button = pn.widgets.Button(
-            name="↻ Refresh View",
-            button_type="default",
-            width=100
-        )
         
         self.network_load_progress = pn.indicators.Progress(
             name='Loading Network',

@@ -1,5 +1,3 @@
-# dashboard.py
-
 import panel as pn
 import time
 
@@ -12,6 +10,58 @@ from .analysis_component import AnalysisComponent
 from .visualization_component import VisualizationComponent
 from src.graph_manager import GraphManager
 from src.graph import NetworkXGraph, GraphToolGraph, ORToolsGraph
+
+# Move the CSS definition here, at the module level
+pn.config.raw_css.append("""
+.network-section {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.paths-section {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.transactions-section {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 15px;
+}
+
+.stats-panel {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    border: 1px solid #dee2e6;
+    margin-bottom: 15px;
+}
+
+.control-panel {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 5px;
+    margin-bottom: 15px;
+}
+""")
 
 class NetworkFlowDashboard:
     def __init__(self):
@@ -70,7 +120,6 @@ class NetworkFlowDashboard:
         except Exception as e:
             print(f"Error getting active data source: {str(e)}")
             return self.data_sources["CSV"]  # Default to CSV if there's an error
-
 
     def _initialize_graph_manager(self, event):
         """Initialize the graph manager with the current data source configuration."""
@@ -205,58 +254,6 @@ class NetworkFlowDashboard:
             sizing_mode='stretch_both'
         )
 
-        # Define CSS styles
-        pn.config.raw_css.append("""
-        .network-section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .paths-section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .transactions-section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 15px;
-        }
-        
-        .stats-panel {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #dee2e6;
-            margin-bottom: 15px;
-        }
-        
-        .control-panel {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 5px;
-            margin-bottom: 15px;
-        }
-        """)
-
         # Create template with updated styling
         template = pn.template.MaterialTemplate(
             title="pyFinder: Path Finder Dashboard",
@@ -273,9 +270,12 @@ class NetworkFlowDashboard:
         return template
 
 def create_dashboard():
-    """Create and return a new dashboard instance."""
-    dashboard = NetworkFlowDashboard()
-    return dashboard.view()
+    """Return a function that creates a new dashboard instance per session."""
+    def dashboard_view():
+        dashboard = NetworkFlowDashboard()
+        return dashboard.view()
+    return dashboard_view
+
 
 if __name__ == "__main__":
     # This is handled in run.py

@@ -50,7 +50,9 @@ class PostgresManualComponent(DataSourceComponent):
         self.load_button = pn.widgets.Button(
             name="Load PostgreSQL Configuration",
             button_type="primary",
-            width=200
+            sizing_mode="fixed",
+            width=200,
+            height=40
         )
         self.status = pn.pane.Markdown(
             "Status: Not configured",
@@ -133,7 +135,9 @@ class PostgresEnvComponent(DataSourceComponent):
         self.load_button = pn.widgets.Button(
             name="Load Environment Configuration",
             button_type="primary",
-            width=200
+            sizing_mode="fixed",
+            width=200,
+            height=40
         )
         self.status = pn.pane.Markdown(
             "Status: Not configured",

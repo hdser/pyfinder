@@ -5,7 +5,6 @@ from .data_ingestion import DataIngestion, PostgresDataIngestion
 from .graph import NetworkXGraph, GraphToolGraph, GraphCreator
 from .flow_analysis import NetworkFlowAnalysis
 from .visualization import Visualization
-from .csv_loader import CSVLoader
 import random
 import time
 
