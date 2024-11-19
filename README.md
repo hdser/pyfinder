@@ -84,7 +84,18 @@ Which can the be simplified to
 
 2. Install dependencies:
    ```
-   pip install -r requirements.txt
+   conda env create -f environment.yml
+   ```
+
+3. Run Dashboard:
+   ```
+   conda activate pyfinder
+   python run.py
+   ```
+
+Or run dashboard with docker
+   ```
+   docker compose up
    ```
 
 ## Usage
