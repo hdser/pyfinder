@@ -16,11 +16,13 @@ services:
     timeout_seconds: 10
     success_threshold: 1
     failure_threshold: 3
-  envs:
+  eenvs:
   - key: PYTHONPATH
     value: /app
   - key: PYTHONUNBUFFERED
     value: "1"
+  - key: APP_URL
+    value: ${APP_URL}
   volumes:
   - name: data
     mount_path: /app/data
