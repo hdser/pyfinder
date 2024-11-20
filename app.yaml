@@ -17,14 +17,6 @@ services:
     success_threshold: 1
     failure_threshold: 3
   envs:
-  - key: BOKEH_ALLOW_WS_ORIGIN
-    scope: RUN_TIME
-    type: GENERAL
-    value: ${APP_DOMAIN},pyfinder-app-6r72q.ondigitalocean.app
-  - key: APP_DOMAIN
-    scope: RUN_TIME
-    type: GENERAL
-    value: ${APP_DOMAIN}
   - key: HOST
     scope: RUN_TIME
     type: GENERAL
