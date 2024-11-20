@@ -5,20 +5,59 @@ from urllib.parse import urlparse
 import logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
+
+def print_env_info():
+    """Print relevant environment variables for debugging."""
+    debug_vars = [
+        'APP_DOMAIN', 'BOKEH_ALLOW_WS_ORIGIN', 'APP_URL', 
+        'HOST', 'PORT', 'PUBLIC_URL', 'HOSTNAME'
+    ]
+    
+    logger.info("Environment Variables:")
+    for var in debug_vars:
+        value = os.getenv(var)
+        logger.info(f"{var}: {value}")
+
+def clean_origin(origin: str) -> str:
+    """Clean origin string to remove protocol and path."""
+    if not origin:
+        return origin
+    # Remove any protocol
+    if '://' in origin:
+        origin = origin.split('://', 1)[1]
+    # Remove any path
+    origin = origin.split('/', 1)[0]
+    # Remove any port if it's standard http/https port
+    if origin.endswith(':80') or origin.endswith(':443'):
+        origin = origin.rsplit(':', 1)[0]
+    return origin
 
 def get_allowed_origins():
     """Get allowed origins for websocket connections."""
     allowed_origins = set()
     
+    # Print environment info for debugging
+    print_env_info()
+    
     # Get Digital Ocean app domain
-    app_domain = os.getenv('APP_DOMAIN')
+    app_domain = os.getenv('APP_DOMAIN', '')
+    app_url = os.getenv('APP_URL', '')
+    
     if app_domain:
-        # Add both domain and full HTTPS URL
-        allowed_origins.add(app_domain)
-        allowed_origins.add(f"https://{app_domain}")
-        logger.info(f"Added Digital Ocean domain: {app_domain}")
+        allowed_origins.add(clean_origin(app_domain))
+        logger.info(f"Added app domain: {app_domain}")
+    
+    if app_url:
+        parsed = urlparse(app_url)
+        if parsed.netloc:
+            allowed_origins.add(parsed.netloc)
+        logger.info(f"Added app URL: {app_url}")
     
     # Get origins from BOKEH_ALLOW_WS_ORIGIN environment variable
     bokeh_origins = os.getenv('BOKEH_ALLOW_WS_ORIGIN', '')
@@ -26,10 +65,7 @@ def get_allowed_origins():
         for origin in bokeh_origins.split(','):
             origin = origin.strip()
             if origin:
-                allowed_origins.add(origin)
-                # Also add with https:// if not present
-                if not origin.startswith(('http://', 'https://')):
-                    allowed_origins.add(f"https://{origin}")
+                allowed_origins.add(clean_origin(origin))
         logger.info(f"Added Bokeh origins: {bokeh_origins}")
 
     # Always include development origins
@@ -40,8 +76,10 @@ def get_allowed_origins():
     # Remove any empty strings
     allowed_origins = {origin for origin in allowed_origins if origin}
     
-    # Log all origins
-    logger.info(f"Final allowed origins: {allowed_origins}")
+    # Log final configuration
+    logger.info("Final allowed origins:")
+    for origin in sorted(allowed_origins):
+        logger.info(f"  - {origin}")
     
     return list(allowed_origins)
 
@@ -74,6 +112,11 @@ def main():
     try:
         # Set Bokeh environment variable as backup
         os.environ['BOKEH_ALLOW_WS_ORIGIN'] = ','.join(allowed_origins)
+        
+        # Log the complete server configuration
+        logger.info("Complete server configuration:")
+        for key, value in server_kwargs.items():
+            logger.info(f"  {key}: {value}")
         
         # Serve the dashboard
         logger.info("Starting Panel server...")
