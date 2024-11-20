@@ -25,15 +25,12 @@ RUN apt-get update && \
         curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy environment file first
+# Copy environment file
 COPY environment.yml .
 
-# Create Conda environment with graph-tool from conda-forge
+# Create Conda environment
 RUN conda env create -f environment.yml && \
     conda clean -afy
-
-# Make RUN commands use the new environment
-SHELL ["conda", "run", "-n", "pyfinder", "/bin/bash", "-c"]
 
 # Set working directory
 WORKDIR /app
@@ -41,8 +38,12 @@ WORKDIR /app
 # Copy application code
 COPY . .
 
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Expose port
 EXPOSE 5006
 
-# Command to run the application
-ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "pyfinder", "python", "-u", "run.py"]
+# Use entrypoint script
+ENTRYPOINT ["/app/entrypoint.sh"]

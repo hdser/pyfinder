@@ -18,7 +18,7 @@ services:
     failure_threshold: 3
   envs:
   - key: BOKEH_ALLOW_WS_ORIGIN
-    value: ${APP_DOMAIN}
+    value: $(APP_URL)
     scope: RUN_TIME
     type: GENERAL
   volumes:
