@@ -6,8 +6,6 @@ import dask.dataframe as dd
 import pandas as pd
 from typing import Optional, Tuple, Dict
 from concurrent.futures import ThreadPoolExecutor
-import tkinter as tk
-from tkinter import filedialog
 
 class CSVDataSourceComponent(param.Parameterized):
     selected_directory = param.String(default="")
@@ -19,8 +17,6 @@ class CSVDataSourceComponent(param.Parameterized):
     def __init__(self, **params):
         super().__init__(**params)
         self.executor = ThreadPoolExecutor(max_workers=2)
-        # Initialize tkinter root window for file dialog
-        self.tk_root = None
         self._create_components()
         self._setup_callbacks()
     
@@ -72,16 +68,14 @@ class CSVDataSourceComponent(param.Parameterized):
         self.default_dir_button.on_click(self._use_default_directory)
         self.load_button.on_click(self._handle_load)
 
-    def _initialize_tk_root(self):
-        """Initialize the tkinter root window if not already initialized."""
-        if self.tk_root is None:
-            self.tk_root = tk.Tk()
-            self.tk_root.withdraw()  # Hide the main window
-
     def _browse_directory(self, event):
-        """Handle directory browse button click using tkinter's file dialog."""
+        """Handle directory browse button click."""
         try:
-            self._initialize_tk_root()
+            # Try to use tkinter if available
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
             directory = filedialog.askdirectory(
                 initialdir=os.getcwd(),
                 title="Select Data Directory"
@@ -89,9 +83,11 @@ class CSVDataSourceComponent(param.Parameterized):
             if directory:  # Only update if a directory was selected
                 self.directory_input.value = directory
                 self._check_directory(directory)
-        except Exception as e:
-            self.status.object = f"Error browsing directory: {str(e)}"
-            self.status.styles = {'color': 'red'}
+        except:
+            # Fallback to default directory if tkinter is not available
+            self._use_default_directory()
+            self.status.object = "GUI file browser not available. Using default directory or enter path manually."
+            self.status.styles = {'color': 'orange'}
 
     def _handle_directory_change(self, event):
         """Handle directory input changes."""
@@ -136,6 +132,7 @@ class CSVDataSourceComponent(param.Parameterized):
     def _use_default_directory(self, event=None):
         """Use default data directory."""
         potential_locations = [
+            "/app/data",  # Docker mounted volume
             "data",
             "../data",
             "../../data",
