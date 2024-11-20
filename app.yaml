@@ -6,7 +6,7 @@ services:
   github:
     branch: main
     deploy_on_push: true
-    repo: your-username/pyfinder
+    repo: hdser/pyfinder
   instance_size_slug: professional-m  # 8GB RAM
   instance_count: 1
   health_check:
