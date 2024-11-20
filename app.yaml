@@ -21,10 +21,11 @@ services:
     value: /app
   - key: PYTHONUNBUFFERED
     value: "1"
-  - key: DIGITAL_OCEAN_APP
-    value: "true"
   - key: APP_URL
+    scope: RUN_AND_BUILD_TIME
     value: ${APP_URL}
+  - key: HOST
+    value: ${APP_DOMAIN}
   volumes:
   - name: data
     mount_path: /app/data
