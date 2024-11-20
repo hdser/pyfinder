@@ -1,4 +1,4 @@
-version: '3.8'  # Specify the Compose file format version
+version: '3.8'
 
 services:
   pyfinder:
@@ -8,10 +8,12 @@ services:
     ports:
       - "5006:5006"
     volumes:
-      - ./data:/app/data  # Only mount data directory
+      - ./data:/app/data  
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
+      # Local development WebSocket origins
+      - BOKEH_ALLOW_WS_ORIGIN=localhost:5006,0.0.0.0:5006,127.0.0.1:5006
     deploy:
       resources:
         limits:

@@ -17,15 +17,10 @@ services:
     success_threshold: 1
     failure_threshold: 3
   envs:
-  - key: PYTHONPATH
-    value: /app
-  - key: PYTHONUNBUFFERED
-    value: "1"
-  - key: APP_URL
-    scope: RUN_AND_BUILD_TIME
-    value: ${APP_URL}
-  - key: HOST
+  - key: BOKEH_ALLOW_WS_ORIGIN
     value: ${APP_DOMAIN}
+    scope: RUN_TIME
+    type: GENERAL
   volumes:
   - name: data
     mount_path: /app/data
