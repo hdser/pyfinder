@@ -37,7 +37,7 @@ ENV/
 Thumbs.db
 
 # Project specific
-data/*
-!data/.gitkeep
+#data/*
+#!data/.gitkeep
 output/*
 !output/.gitkeep
