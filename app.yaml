@@ -24,4 +24,4 @@ services:
   volumes:
   - name: data
     mount_path: /app/data
-    size_gb: 10
+    size_gb: 1
