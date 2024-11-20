@@ -9,7 +9,8 @@ services:
     repo: hdser/pyfinder
   instance_size_slug: professional-m
   instance_count: 1
-  run_command: "bash -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate pyfinder && exec python -u run.py'"
+  run_command: >
+    bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate pyfinder && exec python -u run.py"
   health_check:
     http_path: /
     initial_delay_seconds: 40
