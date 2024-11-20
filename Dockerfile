@@ -2,11 +2,11 @@
 FROM continuumio/miniconda3
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV FORCE_COLOR=1
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FORCE_COLOR=1
 
 # Install system dependencies
 RUN apt-get update && \

@@ -21,6 +21,14 @@ services:
     value: $(APP_URL)
     scope: RUN_TIME
     type: GENERAL
+  - key: HOST
+    value: 0.0.0.0
+    scope: RUN_TIME
+    type: GENERAL
+  - key: PORT
+    value: 5006
+    scope: RUN_TIME
+    type: GENERAL
   volumes:
   - name: data
     mount_path: /app/data
