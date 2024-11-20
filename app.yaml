@@ -20,7 +20,7 @@ services:
   - key: BOKEH_ALLOW_WS_ORIGIN
     scope: RUN_TIME
     type: GENERAL
-    value: ${APP_DOMAIN}
+    value: ${APP_DOMAIN},pyfinder-app-6r72q.ondigitalocean.app
   - key: APP_DOMAIN
     scope: RUN_TIME
     type: GENERAL
