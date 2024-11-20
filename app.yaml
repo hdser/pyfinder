@@ -20,7 +20,11 @@ services:
   - key: BOKEH_ALLOW_WS_ORIGIN
     scope: RUN_TIME
     type: GENERAL
-    value: ${APP_URL}
+    value: ${APP_DOMAIN}
+  - key: APP_DOMAIN
+    scope: RUN_TIME
+    type: GENERAL
+    value: ${APP_DOMAIN}
   - key: HOST
     scope: RUN_TIME
     type: GENERAL
