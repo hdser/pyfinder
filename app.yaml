@@ -1,0 +1,27 @@
+name: pyfinder
+services:
+- name: web
+  dockerfile_path: Dockerfile
+  source_dir: .
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: your-username/pyfinder
+  instance_size_slug: professional-m  # 8GB RAM
+  instance_count: 1
+  health_check:
+    http_path: /
+    initial_delay_seconds: 40
+    period_seconds: 30
+    timeout_seconds: 10
+    success_threshold: 1
+    failure_threshold: 3
+  envs:
+  - key: PYTHONPATH
+    value: /app
+  - key: PYTHONUNBUFFERED
+    value: "1"
+  volumes:
+  - name: data
+    mount_path: /app/data
+    size_gb: 10
