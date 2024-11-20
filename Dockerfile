@@ -38,12 +38,8 @@ WORKDIR /app
 # Copy application code
 COPY . .
 
-# Copy entrypoint script
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
 # Expose port
 EXPOSE 5006
 
-# Use entrypoint script
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Optionally, set a default command
+CMD ["bash"]
