@@ -22,8 +22,8 @@ class AnalysisComponent(BaseComponent):
     source = param.String(default="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0")
     sink = param.String(default="0xe98f0672a8e31b408124f975749905f8003a2e04")
     requested_flow_mCRC = param.String(default="")
-    algorithm = param.Selector(default="Default (Preflow Push)", objects=[
-        "Default (Preflow Push)",
+    algorithm = param.Selector(default="Preflow Push", objects=[
+        "Preflow Push",
         "Edmonds-Karp",
         "Shortest Augmenting Path",
         "Boykov-Kolmogorov",
