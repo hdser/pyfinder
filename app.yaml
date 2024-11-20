@@ -7,7 +7,7 @@ services:
     branch: main
     deploy_on_push: true
     repo: hdser/pyfinder
-  instance_size_slug: professional-m  # 8GB RAM
+  instance_size_slug: professional-m
   instance_count: 1
   health_check:
     http_path: /
@@ -16,11 +16,13 @@ services:
     timeout_seconds: 10
     success_threshold: 1
     failure_threshold: 3
-  eenvs:
+  envs:
   - key: PYTHONPATH
     value: /app
   - key: PYTHONUNBUFFERED
     value: "1"
+  - key: DIGITAL_OCEAN_APP
+    value: "true"
   - key: APP_URL
     value: ${APP_URL}
   volumes:
