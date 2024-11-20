@@ -3,70 +3,56 @@ from dashboard import create_dashboard
 import os
 from urllib.parse import urlparse
 
-def print_env_info():
-    """Print all environment variables for debugging."""
-    print("\nEnvironment Variables:")
-    for key, value in os.environ.items():
-        print(f"{key}: {value}")
-
 def get_allowed_origins():
     """Get allowed origins for websocket connections."""
-    allowed_origins = []
-
+    allowed_origins = set()
+    
     # Get origins from BOKEH_ALLOW_WS_ORIGIN environment variable
-    bokeh_origins = os.getenv('BOKEH_ALLOW_WS_ORIGIN')
+    bokeh_origins = os.getenv('BOKEH_ALLOW_WS_ORIGIN', '')
     if bokeh_origins:
-        allowed_origins.extend(bokeh_origins.split(','))
+        allowed_origins.update(origin.strip() for origin in bokeh_origins.split(','))
 
-    # Parse APP_URL to get the domain
+    # Parse APP_URL if available
     app_url = os.getenv('APP_URL')
     if app_url:
         parsed_url = urlparse(app_url)
-        app_domain = parsed_url.netloc
+        app_domain = parsed_url.netloc or parsed_url.path.strip('/')
         if app_domain:
-            allowed_origins.append(app_domain)
+            allowed_origins.add(app_domain)
+            # Also add the full URL
+            allowed_origins.add(app_url.rstrip('/'))
 
-    # Always include local development origins
-    local_origins = ['localhost:5006', '0.0.0.0:5006', '127.0.0.1:5006']
-    allowed_origins.extend(local_origins)
+    # Always include development origins
+    dev_origins = {'localhost:5006', '0.0.0.0:5006', '127.0.0.1:5006'}
+    allowed_origins.update(dev_origins)
 
-    # Remove duplicates
-    allowed_origins = list(set(allowed_origins))
-
-    return allowed_origins
+    return list(allowed_origins)
 
 def main():
-    # Print environment variables
-    print_env_info()
-
     # Initialize Panel
     pn.extension(sizing_mode="stretch_width")
 
-    # Get allowed origins
+    # Get configuration
+    port = int(os.getenv('PORT', '5006'))
+    host = os.getenv('HOST', '0.0.0.0')
     allowed_origins = get_allowed_origins()
-    print(f"\nConfiguration:")
-    print(f"- Allowed WebSocket origins: {allowed_origins}")
+    
+    print(f"\nServer Configuration:")
+    print(f"Host: {host}")
+    print(f"Port: {port}")
+    print(f"Allowed Origins: {allowed_origins}")
 
     # Server configuration
     server_kwargs = {
-        'port': int(os.getenv('PORT', '5006')),
-        'address': os.getenv('HOST', '0.0.0.0'),
+        'port': port,
+        'address': host,
         'allow_websocket_origin': allowed_origins,
-        'show': False
+        'show': False,
+        'websocket_max_message_size': int(os.getenv('BOKEH_WEBSOCKET_MAX_MESSAGE_SIZE', 20*1024*1024)),
+        'check_unused_sessions': 1000,
+        'keep_alive_milliseconds': 1000,
+        'num_procs': 1
     }
-
-    # Production settings for DigitalOcean
-    if os.getenv('APP_URL'):
-        server_kwargs.update({
-            'check_unused_sessions': 1000,
-            'keep_alive_milliseconds': 1000,
-            'num_procs': 1,
-            'websocket_max_message_size': 20*1024*1024
-        })
-
-    print("\nServer Configuration:")
-    for key, value in server_kwargs.items():
-        print(f"- {key}: {value}")
 
     # Serve the dashboard
     pn.serve(create_dashboard(), **server_kwargs)

@@ -13,12 +13,10 @@ services:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      - DEBIAN_FRONTEND=noninteractive
-      - FORCE_COLOR=1
       - HOST=0.0.0.0
       - PORT=5006
       - BOKEH_ALLOW_WS_ORIGIN=localhost:5006,0.0.0.0:5006,127.0.0.1:5006
-    command: "bash -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate pyfinder && exec python -u run.py'"
+      - BOKEH_WEBSOCKET_MAX_MESSAGE_SIZE=20971520
     deploy:
       resources:
         limits:

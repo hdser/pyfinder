@@ -9,8 +9,6 @@ services:
     repo: hdser/pyfinder
   instance_size_slug: professional-m
   instance_count: 1
-  run_command: >
-    bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate pyfinder && exec python -u run.py"
   health_check:
     http_path: /
     initial_delay_seconds: 40
@@ -20,17 +18,25 @@ services:
     failure_threshold: 3
   envs:
   - key: BOKEH_ALLOW_WS_ORIGIN
-    value: $(APP_URL)
     scope: RUN_TIME
     type: GENERAL
+    value: ${APP_URL}
   - key: HOST
+    scope: RUN_TIME
+    type: GENERAL
     value: 0.0.0.0
-    scope: RUN_TIME
-    type: GENERAL
   - key: PORT
-    value: 5006
     scope: RUN_TIME
     type: GENERAL
+    value: "5006"
+  - key: PYTHONPATH
+    scope: RUN_TIME
+    type: GENERAL
+    value: /app
+  - key: BOKEH_WEBSOCKET_MAX_MESSAGE_SIZE
+    scope: RUN_TIME
+    type: GENERAL
+    value: "20971520"
   volumes:
   - name: data
     mount_path: /app/data
