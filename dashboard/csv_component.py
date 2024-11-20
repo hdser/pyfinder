@@ -1,6 +1,7 @@
 import panel as pn
 import param
 import os
+import logging
 from pathlib import Path
 import dask.dataframe as dd
 import pandas as pd
@@ -17,9 +18,10 @@ class CSVDataSourceComponent(param.Parameterized):
     def __init__(self, **params):
         super().__init__(**params)
         self.executor = ThreadPoolExecutor(max_workers=2)
+        self.logger = logging.getLogger(__name__)
         self._create_components()
         self._setup_callbacks()
-    
+        
     def _create_components(self):
         """Create all UI components."""
         self.status = pn.pane.Markdown(
@@ -83,7 +85,8 @@ class CSVDataSourceComponent(param.Parameterized):
             if directory:  # Only update if a directory was selected
                 self.directory_input.value = directory
                 self._check_directory(directory)
-        except:
+        except Exception as e:
+            self.logger.warning(f"GUI file browser not available: {str(e)}")
             # Fallback to default directory if tkinter is not available
             self._use_default_directory()
             self.status.object = "GUI file browser not available. Using default directory or enter path manually."
@@ -94,20 +97,99 @@ class CSVDataSourceComponent(param.Parameterized):
         if event.new:
             self._check_directory(event.new)
 
+    def _find_data_directory(self) -> Optional[Path]:
+        """
+        Find the data directory by checking multiple possible locations.
+        Prioritizes Docker environment paths.
+        """
+        # Check if running in Docker
+        in_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER')
+        self.logger.info(f"Running in Docker: {in_docker}")
+
+        # Prioritized locations for data directory
+        potential_locations = []
+        
+        if in_docker:
+            potential_locations.append(Path("/app/data"))
+        
+        potential_locations.extend([
+            Path.cwd() / "data",
+            Path.cwd().parent / "data",
+            Path(__file__).parent.parent.parent / "data",
+            Path.home() / "data"
+        ])
+
+        for location in potential_locations:
+            self.logger.info(f"Checking data directory: {location}")
+            if location.exists() and location.is_dir():
+                trust_file = location / "data-trust.csv"
+                balance_file = location / "data-balance.csv"
+                
+                if trust_file.exists() and balance_file.exists():
+                    self.logger.info(f"Found valid data directory: {location}")
+                    return location
+                else:
+                    self.logger.warning(f"Directory exists but missing required files: {location}")
+            else:
+                self.logger.debug(f"Directory not found: {location}")
+        
+        return None
+
+    def _use_default_directory(self, event=None):
+        """Use default data directory with improved logging and error handling."""
+        try:
+            data_dir = self._find_data_directory()
+            if data_dir:
+                self.logger.info(f"Using default data directory: {data_dir}")
+                self.directory_input.value = str(data_dir)
+                self._check_directory(str(data_dir))
+            else:
+                error_msg = (
+                    "Default data directory not found. Please ensure data files exist in one of:\n"
+                    "- /app/data (Docker)\n"
+                    "- ./data\n"
+                    "- ../data\n"
+                    "- Project root /data"
+                )
+                self.logger.error(error_msg)
+                self.status.object = error_msg
+                self.status.styles = {'color': 'red'}
+        except Exception as e:
+            self.logger.exception("Error using default directory")
+            self.status.object = f"Error accessing default directory: {str(e)}"
+            self.status.styles = {'color': 'red'}
+
     def _check_directory(self, directory: str):
-        """Check if directory contains required CSV files."""
+        """Check if directory contains required CSV files with improved error handling."""
         try:
             directory_path = Path(directory)
+            self.logger.info(f"Checking directory: {directory_path}")
+            
             if not directory_path.exists():
-                raise ValueError("Directory does not exist")
+                raise ValueError(f"Directory does not exist: {directory_path}")
             if not directory_path.is_dir():
-                raise ValueError("Selected path is not a directory")
+                raise ValueError(f"Not a directory: {directory_path}")
             
             trust_file = directory_path / "data-trust.csv"
             balance_file = directory_path / "data-balance.csv"
             
-            if not trust_file.exists() or not balance_file.exists():
-                raise ValueError("Directory must contain 'data-trust.csv' and 'data-balance.csv'")
+            missing_files = []
+            if not trust_file.exists():
+                missing_files.append("data-trust.csv")
+            if not balance_file.exists():
+                missing_files.append("data-balance.csv")
+                
+            if missing_files:
+                raise ValueError(f"Missing required files: {', '.join(missing_files)}")
+            
+            # Check file permissions
+            try:
+                with open(trust_file) as f:
+                    f.read(1)
+                with open(balance_file) as f:
+                    f.read(1)
+            except PermissionError:
+                raise ValueError("Permission denied accessing data files")
             
             self.csv_trusts_file = str(trust_file)
             self.csv_balances_file = str(balance_file)
@@ -122,6 +204,7 @@ class CSVDataSourceComponent(param.Parameterized):
             self.status.styles = {'color': '#007bff'}
             
         except Exception as e:
+            self.logger.exception(f"Error checking directory: {directory}")
             self.status.object = f"Error: {str(e)}"
             self.status.styles = {'color': 'red'}
             self.csv_trusts_file = ""
@@ -129,32 +212,11 @@ class CSVDataSourceComponent(param.Parameterized):
             self.validation_state = {}
             self._update_file_info()
 
-    def _use_default_directory(self, event=None):
-        """Use default data directory."""
-        potential_locations = [
-            "/app/data",  # Docker mounted volume
-            "data",
-            "../data",
-            "../../data",
-            os.path.join(os.path.dirname(__file__), "../../../data")
-        ]
-        
-        for location in potential_locations:
-            if os.path.exists(location):
-                trust_path = os.path.join(location, "data-trust.csv")
-                balance_path = os.path.join(location, "data-balance.csv")
-                if os.path.exists(trust_path) and os.path.exists(balance_path):
-                    location = os.path.abspath(location)
-                    self.directory_input.value = location
-                    self._check_directory(location)
-                    return
-        
-        self.status.object = "Default data directory not found"
-        self.status.styles = {'color': 'red'}
-
     def _validate_file(self, filepath: str, validation_key: str) -> bool:
-        """Validate CSV file format and content."""
+        """Validate CSV file format and content with improved error handling."""
         try:
+            self.logger.info(f"Validating {validation_key} file: {filepath}")
+            
             # Quick format check
             pd.read_csv(filepath, nrows=5)
             
@@ -166,13 +228,14 @@ class CSVDataSourceComponent(param.Parameterized):
             self._update_file_info()
             
             if all(self.validation_state.values()):
+                self.logger.info("All files validated successfully")
                 self.status.object = "All files validated successfully"
                 self.status.styles = {'color': 'green'}
             
             return True
             
         except Exception as e:
-            print(f"Validation error for {validation_key}: {str(e)}")
+            self.logger.exception(f"Validation error for {validation_key}")
             self.validation_state[validation_key] = False
             self._update_file_info()
             self.status.object = f"Validation failed: {str(e)}"
@@ -210,12 +273,15 @@ class CSVDataSourceComponent(param.Parameterized):
         """Handle load button click."""
         try:
             if self.validate_configuration():
+                self.logger.info("Configuration validated successfully")
                 self.status.object = "Configuration validated and ready to use"
                 self.status.styles = {'color': 'green'}
             else:
+                self.logger.warning("Configuration validation failed")
                 self.status.object = "Configuration validation failed"
                 self.status.styles = {'color': 'red'}
         except Exception as e:
+            self.logger.exception("Error validating configuration")
             self.status.object = f"Error validating configuration: {str(e)}"
             self.status.styles = {'color': 'red'}
 

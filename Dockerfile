@@ -30,11 +30,11 @@ COPY environment.yml .
 RUN conda env create -f environment.yml && \
     conda clean -afy
 
+# Create data directory with proper permissions
+RUN mkdir -p /app/data && chmod 777 /app/data
+
 # Copy application code
 COPY . .
-
-# Create data directory
-RUN mkdir -p /app/data
 
 # Create startup script
 RUN echo '#!/bin/bash\n\

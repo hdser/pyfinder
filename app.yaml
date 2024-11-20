@@ -17,6 +17,10 @@ services:
     success_threshold: 1
     failure_threshold: 3
   envs:
+  - key: DIGITAL_OCEAN
+    scope: RUN_TIME
+    type: GENERAL
+    value: "true"
   - key: HOST
     scope: RUN_TIME
     type: GENERAL
@@ -33,7 +37,7 @@ services:
     scope: RUN_TIME
     type: GENERAL
     value: "20971520"
-  volumes:
-  - name: data
-    mount_path: /app/data
-    size_gb: 1
+  - key: BOKEH_ALLOW_WS_ORIGIN
+    scope: RUN_TIME
+    type: GENERAL
+    value: ${APP_DOMAIN}

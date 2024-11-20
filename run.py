@@ -15,49 +15,51 @@ def get_allowed_origins():
     """Get allowed origins for websocket connections."""
     allowed_origins = set()
     
-    # Always include Digital Ocean app domain
-    allowed_origins.add('pyfinder-app-6r72q.ondigitalocean.app')
+    # Get Digital Ocean app domain
+    app_domain = os.getenv('APP_DOMAIN', '')
+    if app_domain:
+        allowed_origins.add(app_domain)
+        logger.info(f"Added app domain: {app_domain}")
     
-    # Get other origins from environment variables
-    if os.getenv('APP_DOMAIN'):
-        allowed_origins.add(os.getenv('APP_DOMAIN'))
-    
-    if os.getenv('BOKEH_ALLOW_WS_ORIGIN'):
-        origins = os.getenv('BOKEH_ALLOW_WS_ORIGIN').split(',')
-        allowed_origins.update(origin.strip() for origin in origins if origin.strip())
+    bokeh_origins = os.getenv('BOKEH_ALLOW_WS_ORIGIN', '')
+    if bokeh_origins:
+        allowed_origins.update(origin.strip() for origin in bokeh_origins.split(','))
     
     # Development origins
     dev_origins = {'localhost:5006', '0.0.0.0:5006', '127.0.0.1:5006'}
     allowed_origins.update(dev_origins)
     
-    # Clean origins (remove any protocol, path, etc)
+    # Clean origins - remove any protocol/path
     cleaned_origins = set()
     for origin in allowed_origins:
-        if '://' in origin:
-            origin = origin.split('://', 1)[1]
-        origin = origin.split('/')[0]  # Remove any path
-        cleaned_origins.add(origin)
+        if origin:
+            # Remove protocol if present
+            if '://' in origin:
+                origin = origin.split('://', 1)[1]
+            # Remove path if present
+            origin = origin.split('/', 1)[0]
+            # Remove port 80/443 if present
+            for port in [':80', ':443']:
+                if origin.endswith(port):
+                    origin = origin[:-len(port)]
+            cleaned_origins.add(origin)
     
-    # Log all origins
     logger.info("Allowed Origins:")
     for origin in sorted(cleaned_origins):
         logger.info(f"  - {origin}")
-        
+    
     return list(cleaned_origins)
 
 def main():
     # Initialize Panel
     pn.extension(sizing_mode="stretch_width")
     
-    # Server configuration
+    # Get configuration
     port = int(os.getenv('PORT', '5006'))
     host = os.getenv('HOST', '0.0.0.0')
     allowed_origins = get_allowed_origins()
     
-    logger.info("Server Configuration:")
-    logger.info(f"Host: {host}")
-    logger.info(f"Port: {port}")
-    
+    # Server configuration
     server_kwargs = {
         'port': port,
         'address': host,
@@ -70,15 +72,18 @@ def main():
     }
 
     try:
-        # Set Bokeh environment variable
-        os.environ['BOKEH_ALLOW_WS_ORIGIN'] = ','.join(allowed_origins)
+        # Log environment and configuration
+        logger.info(f"Starting server on {host}:{port}")
+        logger.info(f"Data directory: {os.path.abspath('/app/data')}")
+        if os.path.exists('/app/data'):
+            files = os.listdir('/app/data')
+            logger.info(f"Files in data directory: {files}")
         
-        # Start server
-        logger.info("Starting Panel server...")
+        # Serve the dashboard
         pn.serve(create_dashboard(), **server_kwargs)
         
     except Exception as e:
-        logger.error(f"Error starting server: {str(e)}")
+        logger.error(f"Error starting server: {str(e)}", exc_info=True)
         raise
 
 if __name__ == "__main__":
