@@ -39,16 +39,23 @@ class NetworkXGraph(BaseGraph):
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
         self.g_nx = self._create_graph(edges, capacities, tokens)
 
-    def _create_graph(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]) -> nx.DiGraph:
+    def _create_graph(
+        self, 
+        edges: List[Tuple[str, str]], 
+        capacities: List[float], 
+        tokens: List[str]
+    ) -> nx.DiGraph:
         g = nx.DiGraph()
-        for (u, v), capacity, token in zip(edges, capacities, tokens):
-            g.add_edge(u, v, capacity=int(capacity), label=token)
-
-        nx.write_graphml_lxml(g, "test.graphml")
-        #import json
-        #from networkx.readwrite import json_graph
-        #with open('networkdata1.json', 'w') as outfile1:
-        #    outfile1.write(json.dumps(json_graph.node_link_data(g)))
+        
+        # Prepare a list of edge tuples with attribute dictionaries
+        edge_data = [
+            (u, v, {'capacity': int(capacity), 'label': token}) 
+            for (u, v), capacity, token in zip(edges, capacities, tokens)
+        ]
+        
+        # Add all edges in a single batch
+        g.add_edges_from(edge_data)
+        
         return g
 
     def has_vertex(self, vertex_id: str) -> bool:

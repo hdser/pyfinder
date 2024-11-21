@@ -54,7 +54,7 @@ class GraphManager:
             trusts_file, balances_file = data_source
             try:
                 df_trusts = pd.read_csv(trusts_file,low_memory=False)
-                df_balances = pd.read_csv(balances_file,low_memory=False)
+                df_balances = pd.read_csv(balances_file, dtype={'demurragedTotalBalance': 'float32','account': 'str','tokenAddress': 'str'}, low_memory=False)
                 return DataIngestion(df_trusts, df_balances)
             except Exception as e:
                 raise ValueError(f"Error reading CSV files: {str(e)}")
