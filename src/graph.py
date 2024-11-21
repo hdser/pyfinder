@@ -1,13 +1,9 @@
 import networkx as nx
-
 from graph_tool import Graph
-from graph_tool.flow import edmonds_karp_max_flow, push_relabel_max_flow, boykov_kolmogorov_max_flow
-from graph_tool.search import dfs_search, DFSVisitor
-from graph_tool.util import find_edge
-
 from ortools.graph.python import max_flow
 
-from typing import List, Tuple, Dict, Callable, Optional
+from abc import abstractmethod
+from typing import Set, Dict, Any, Optional, Iterator, List, Tuple, Callable
 import time
 from collections import defaultdict, deque
 
@@ -25,19 +21,110 @@ class GraphCreator:
 
 
 class BaseGraph:
+    """Abstract base class defining the interface for all graph implementations."""
+    
+    @abstractmethod
+    def num_vertices(self) -> int:
+        """Return the total number of vertices in the graph."""
+        pass
+    
+    @abstractmethod
+    def num_edges(self) -> int:
+        """Return the total number of edges in the graph."""
+        pass
+    
+    @abstractmethod
     def has_vertex(self, vertex_id: str) -> bool:
-        raise NotImplementedError("Subclass must implement abstract method")
+        """Check if a vertex exists in the graph."""
+        pass
 
+    @abstractmethod
     def has_edge(self, u: str, v: str) -> bool:
-        raise NotImplementedError("Subclass must implement abstract method")
+        """Check if an edge exists between two vertices."""
+        pass
 
-    def get_edge_data(self, u: str, v: str) -> Dict:
-        raise NotImplementedError("Subclass must implement abstract method")
+    @abstractmethod
+    def get_edge_data(self, u: str, v: str) -> Dict[str, Any]:
+        """Get edge attributes."""
+        pass
+    
+    @abstractmethod
+    def get_vertices(self) -> Set[str]:
+        """Return set of all vertex IDs."""
+        pass
+    
+    @abstractmethod
+    def get_edges(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        """Return list of all edges with their data."""
+        pass
+    
+    @abstractmethod
+    def in_degree(self, vertex_id: str) -> int:
+        """Return number of incoming edges for a vertex."""
+        pass
+    
+    @abstractmethod
+    def out_degree(self, vertex_id: str) -> int:
+        """Return number of outgoing edges for a vertex."""
+        pass
+    
+    @abstractmethod
+    def degree(self, vertex_id: str) -> int:
+        """Return total degree (in + out) for a vertex."""
+        pass
+    
+    @abstractmethod
+    def predecessors(self, vertex_id: str) -> Iterator[str]:
+        """Return iterator over predecessor vertices."""
+        pass
+    
+    @abstractmethod
+    def successors(self, vertex_id: str) -> Iterator[str]:
+        """Return iterator over successor vertices."""
+        pass
+    
+    @abstractmethod
+    def get_edge_capacity(self, u: str, v: str) -> Optional[int]:
+        """Get capacity of edge between u and v."""
+        pass
 
 
 class NetworkXGraph(BaseGraph):
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
         self.g_nx = self._create_graph(edges, capacities, tokens)
+
+    def num_vertices(self) -> int:
+        return self.g_nx.number_of_nodes()
+    
+    def num_edges(self) -> int:
+        return self.g_nx.number_of_edges()
+    
+    def get_vertices(self) -> Set[str]:
+        return set(self.g_nx.nodes())
+    
+    def get_edges(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        return [(u, v, d) for u, v, d in self.g_nx.edges(data=True)]
+    
+    def in_degree(self, vertex_id: str) -> int:
+        return self.g_nx.in_degree(vertex_id)
+    
+    def out_degree(self, vertex_id: str) -> int:
+        return self.g_nx.out_degree(vertex_id)
+    
+    def degree(self, vertex_id: str) -> int:
+        return self.g_nx.degree(vertex_id)
+    
+    def predecessors(self, vertex_id: str) -> Iterator[str]:
+        return self.g_nx.predecessors(vertex_id)
+    
+    def successors(self, vertex_id: str) -> Iterator[str]:
+        return self.g_nx.successors(vertex_id)
+    
+    def get_edge_capacity(self, u: str, v: str) -> Optional[int]:
+        if self.has_edge(u, v):
+            return self.g_nx[u][v].get('capacity')
+        return None
+    
 
     def _create_graph(
         self, 
@@ -401,38 +488,107 @@ class GraphToolGraph(BaseGraph):
         self.id_to_vertex = {self.vertex_id[v]: v for v in self.g_gt.vertices()}
         self.vertex_map = {self.vertex_id[v]: v for v in self.g_gt.vertices()}
 
+    def num_vertices(self) -> int:
+        return self.g_gt.num_vertices()
+    
+    def num_edges(self) -> int:
+        return self.g_gt.num_edges()
+    
+    def get_vertices(self) -> Set[str]:
+        return {self.vertex_id[v] for v in self.g_gt.vertices()}
+    
+    def get_edges(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        edges = []
+        for e in self.g_gt.edges():
+            u = self.vertex_id[e.source()]
+            v = self.vertex_id[e.target()]
+            data = {
+                'capacity': int(self.capacity[e]),
+                'label': self.token[e]
+            }
+            edges.append((u, v, data))
+        return edges
+    
+    def in_degree(self, vertex_id: str) -> int:
+        v = self.id_to_vertex.get(vertex_id)
+        return v.in_degree() if v is not None else 0
+    
+    def out_degree(self, vertex_id: str) -> int:
+        v = self.id_to_vertex.get(vertex_id)
+        return v.out_degree() if v is not None else 0
+    
+    def degree(self, vertex_id: str) -> int:
+        return self.in_degree(vertex_id) + self.out_degree(vertex_id)
+    
+    def predecessors(self, vertex_id: str) -> Iterator[str]:
+        v = self.id_to_vertex.get(vertex_id)
+        if v is not None:
+            for u in v.in_neighbors():
+                yield self.vertex_id[u]
+    
+    def successors(self, vertex_id: str) -> Iterator[str]:
+        v = self.id_to_vertex.get(vertex_id)
+        if v is not None:
+            for w in v.out_neighbors():
+                yield self.vertex_id[w]
+    
+    def get_edge_capacity(self, u: str, v: str) -> Optional[int]:
+        if self.has_edge(u, v):
+            u_vertex = self.id_to_vertex[u]
+            v_vertex = self.id_to_vertex[v]
+            edge = self.g_gt.edge(u_vertex, v_vertex)
+            return int(self.capacity[edge])
+        return None
+
+
     def _create_graph(self, edges: List[Tuple[str, str]], capacities: List[int], tokens: List[str]) -> Graph:
+        # Step 1: Extract all unique vertex IDs
+        unique_vertices = set()
+        for u_id, v_id in edges:
+            unique_vertices.add(u_id)
+            unique_vertices.add(v_id)
+        vertex_ids = sorted(unique_vertices)
+        num_vertices = len(vertex_ids)
+
+        # Step 2: Create a mapping from vertex ID to vertex index
+        vertex_id_to_idx = {vertex_id: idx for idx, vertex_id in enumerate(vertex_ids)}
+
+        # Step 3: Initialize the graph and add all vertices in bulk
         g = Graph(directed=True)
+        g.add_vertex(num_vertices)
+
+        # Step 4: Create and assign vertex properties in bulk
         v_prop = g.new_vertex_property("string")
+        for idx, vertex_id in enumerate(vertex_ids):
+            v_prop[g.vertex(idx)] = vertex_id
+        g.vertex_properties["id"] = v_prop
+
+        # Step 5: Prepare edge list as (source, target, capacity, token)
+        edge_list = [
+            (
+                vertex_id_to_idx[u_id],
+                vertex_id_to_idx[v_id],
+                capacity,
+                token
+            )
+            for (u_id, v_id), capacity, token in zip(edges, capacities, tokens)
+        ]
+
+        # Step 6: Add all edges at once using add_edge_list with properties
         e_prop_capacity = g.new_edge_property("int64_t")
         e_prop_token = g.new_edge_property("string")
+        g.add_edge_list(
+            edge_list,
+            eprops=[e_prop_capacity, e_prop_token],
+            hashed=False  # Set to True if edges might contain duplicates and you want to handle them
+        )
 
-        vertex_map = {}
-
-        for (u_id, v_id), capacity, token in zip(edges, capacities, tokens):
-            if u_id not in vertex_map:
-                u = g.add_vertex()
-                vertex_map[u_id] = u
-                v_prop[u] = u_id
-            else:
-                u = vertex_map[u_id]
-
-            if v_id not in vertex_map:
-                v = g.add_vertex()
-                vertex_map[v_id] = v
-                v_prop[v] = v_id
-            else:
-                v = vertex_map[v_id]
-
-            e = g.add_edge(u, v)
-            e_prop_capacity[e] = int(capacity)
-            e_prop_token[e] = token
-
-        g.vertex_properties["id"] = v_prop
+        # Step 7: Link the properties to the graph
         g.edge_properties["capacity"] = e_prop_capacity
         g.edge_properties["token"] = e_prop_token
 
         return g
+
 
     def has_vertex(self, vertex_id: str) -> bool:
         return vertex_id in self.id_to_vertex
@@ -462,9 +618,7 @@ class GraphToolGraph(BaseGraph):
 
     def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
         """Compute maximum flow between source and sink nodes for graph-tool implementation."""
-        if flow_func is None:
-            flow_func = push_relabel_max_flow
-            
+        
         s = self.get_vertex(source)
         t = self.get_vertex(sink)
 
@@ -883,6 +1037,49 @@ class ORToolsGraph(BaseGraph):
                 self.reverse_arc_adjacency[v_idx] = []
             self.reverse_arc_adjacency[v_idx].append((arc_idx, u_idx, capacity))
 
+    def num_vertices(self) -> int:
+        return len(self.node_to_index)
+    
+    def num_edges(self) -> int:
+        return self.solver.num_arcs()
+    
+    def get_vertices(self) -> Set[str]:
+        return set(self.node_to_index.keys())
+    
+    def get_edges(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        edges = []
+        for i in range(self.solver.num_arcs()):
+            u = self.index_to_node[self.solver.tail(i)]
+            v = self.index_to_node[self.solver.head(i)]
+            data = self.g_nx.get_edge_data(u, v) or {}
+            edges.append((u, v, data))
+        return edges
+    
+    def in_degree(self, vertex_id: str) -> int:
+        return self.g_nx.in_degree(vertex_id)
+    
+    def out_degree(self, vertex_id: str) -> int:
+        return self.g_nx.out_degree(vertex_id)
+    
+    def degree(self, vertex_id: str) -> int:
+        return self.g_nx.degree(vertex_id)
+    
+    def predecessors(self, vertex_id: str) -> Iterator[str]:
+        return self.g_nx.predecessors(vertex_id)
+    
+    def successors(self, vertex_id: str) -> Iterator[str]:
+        return self.g_nx.successors(vertex_id)
+    
+    def get_edge_capacity(self, u: str, v: str) -> Optional[int]:
+        if self.has_edge(u, v):
+            u_idx = self.node_to_index[u]
+            v_idx = self.node_to_index[v]
+            for i in range(self.solver.num_arcs()):
+                if (self.solver.tail(i) == u_idx and 
+                    self.solver.head(i) == v_idx):
+                    return self.solver.capacity(i)
+        return None
+    
 
     def has_vertex(self, vertex_id: str) -> bool:
         """Check if vertex exists in graph."""

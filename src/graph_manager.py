@@ -24,13 +24,16 @@ class GraphManager:
         self.data_ingestion = self._initialize_data_ingestion(data_source)
         print("Ingestion time: ",time.time()-start)
         
+        start = time.time()
         self.graph = GraphCreator.create_graph(
             graph_type, 
             self.data_ingestion.edges, 
             self.data_ingestion.capacities, 
             self.data_ingestion.tokens
         )
+        print("Graph Creation time: ",time.time()-start)
         
+
         self.flow_analysis = NetworkFlowAnalysis(self.graph)
         self.visualization = Visualization()
 
@@ -53,8 +56,16 @@ class GraphManager:
         elif isinstance(data_source[0], str) and isinstance(data_source[1], str):
             trusts_file, balances_file = data_source
             try:
-                df_trusts = pd.read_csv(trusts_file,low_memory=False)
-                df_balances = pd.read_csv(balances_file, dtype={'demurragedTotalBalance': 'float32','account': 'str','tokenAddress': 'str'}, low_memory=False)
+                df_trusts = pd.read_csv(
+                        trusts_file, 
+                        dtype={'truster': 'str','trustee': 'str'},
+                        low_memory=False
+                    )
+                df_balances = pd.read_csv(
+                        balances_file, 
+                        dtype={'demurragedTotalBalance': 'float32','account': 'str','tokenAddress': 'str'}, 
+                        low_memory=False
+                    )
                 return DataIngestion(df_trusts, df_balances)
             except Exception as e:
                 raise ValueError(f"Error reading CSV files: {str(e)}")
@@ -97,14 +108,12 @@ class GraphManager:
     def get_node_info(self):
         """Get information about nodes in the graph."""
         try:
-            if isinstance(self.graph, NetworkXGraph):
-                nodes = list(self.graph.g_nx.nodes())
-            elif isinstance(self.graph, GraphToolGraph):
-                nodes = list(self.graph.id_to_vertex.keys())
-            else:  # ORToolsGraph
-                nodes = list(self.graph.node_to_index.keys())
-
-            sample_nodes = random.sample(nodes, min(5, len(nodes)))
+            total_nodes = self.graph.num_vertices()
+            total_edges = self.graph.num_edges()
+            
+            # Sample some nodes for display
+            sample_nodes = random.sample(list(self.graph.get_vertices()), 
+                                      min(5, self.graph.num_vertices()))
             sample_info = []
             
             for node in sample_nodes:
@@ -114,23 +123,11 @@ class GraphManager:
                     address = self.data_ingestion.get_address_for_id(str(node))
                     sample_info.append(f"Node ID: {node}, Address: {address}")
                     
-            # Get total node counts based on implementation
-            if isinstance(self.graph, NetworkXGraph):
-                total_nodes = self.graph.g_nx.number_of_nodes()
-                total_edges = self.graph.g_nx.number_of_edges()
-            elif isinstance(self.graph, GraphToolGraph):
-                total_nodes = self.graph.g_gt.num_vertices()
-                total_edges = self.graph.g_gt.num_edges()
-            else:  # ORToolsGraph
-                total_nodes = len(self.graph.node_to_index)
-                total_edges = self.graph.solver.num_arcs()
-                
             return (f"Total nodes: {total_nodes}\n"
                     f"Total edges: {total_edges}\n"
                     f"Sample nodes:\n" + 
                     "\n".join(sample_info))
                     
         except Exception as e:
-            return f"Error getting node info: {str(e)}\n" + \
-                f"Total nodes: {len(self.graph.node_to_index)}\n" + \
-                f"Total edges: {self.graph.solver.num_arcs()}"
+            return f"Error getting node info: {str(e)}"
+        

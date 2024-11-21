@@ -71,10 +71,11 @@ class NetworkFlowDashboard:
             "PostgreSQL (Manual)": PostgresManualComponent(),
             "PostgreSQL (ENV)": PostgresEnvComponent()
         }
+
         self.analysis = AnalysisComponent()
         self.visualization = VisualizationComponent()
         self.graph_manager = None
-
+        
         # Create the data source tabs
         self._create_data_source_tabs()
         # Set up component callbacks
@@ -144,11 +145,15 @@ class NetworkFlowDashboard:
             if not graph_type:
                 raise ValueError(f"Unsupported graph library: {self.analysis.graph_library}")
             
+            start = time.time()
             # Initialize graph manager with selected implementation
             self.graph_manager = GraphManager(config, graph_type)
-            
+            print("Initialize graph manager time: ",time.time()-start)
+
+            start = time.time()
             # Initialize visualization
             self.visualization.initialize_graph(self.graph_manager)
+            print("Initialize visualization time: ",time.time()-start)
             
             self.analysis.init_status.object = "Graph initialized successfully"
             self.analysis.init_status.styles = {'color': 'green'}
