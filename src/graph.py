@@ -88,6 +88,16 @@ class BaseGraph:
         """Get capacity of edge between u and v."""
         pass
 
+    @abstractmethod
+    def get_node_outflow_capacity(self, source_id: str) -> int:
+        """Compute total capacity of outgoing edges from source_id to nodes with '_' in their IDs."""
+        pass
+
+    @abstractmethod
+    def get_node_inflow_capacity(self, sink_id: str) -> int:
+        """Compute total capacity of incoming edges to sink_id from nodes with '_' in their IDs."""
+        pass
+
 
 class NetworkXGraph(BaseGraph):
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
@@ -124,6 +134,28 @@ class NetworkXGraph(BaseGraph):
         if self.has_edge(u, v):
             return self.g_nx[u][v].get('capacity')
         return None
+    
+    def get_node_outflow_capacity(self, source_id: str) -> int:
+        total_capacity = 0
+        if source_id not in self.g_nx:
+            return total_capacity
+        for neighbor in self.g_nx.successors(source_id):
+            if '_' in neighbor:
+                edge_data = self.g_nx.get_edge_data(source_id, neighbor)
+                capacity = edge_data.get('capacity', 0)
+                total_capacity += capacity
+        return total_capacity
+
+    def get_node_inflow_capacity(self, sink_id: str) -> int:
+        total_capacity = 0
+        if sink_id not in self.g_nx:
+            return total_capacity
+        for predecessor in self.g_nx.predecessors(sink_id):
+            if '_' in predecessor:
+                edge_data = self.g_nx.get_edge_data(predecessor, sink_id)
+                capacity = edge_data.get('capacity', 0)
+                total_capacity += capacity
+        return total_capacity
     
 
     def _create_graph(
@@ -539,6 +571,32 @@ class GraphToolGraph(BaseGraph):
             edge = self.g_gt.edge(u_vertex, v_vertex)
             return int(self.capacity[edge])
         return None
+    
+    def get_node_outflow_capacity(self, source_id: str) -> int:
+        total_capacity = 0
+        source_vertex = self.get_vertex(source_id)
+        if source_vertex is None:
+            return total_capacity
+        for edge in source_vertex.out_edges():
+            target_vertex = edge.target()
+            target_id = self.vertex_id[target_vertex]
+            if '_' in target_id:
+                capacity = int(self.capacity[edge])
+                total_capacity += capacity
+        return total_capacity
+
+    def get_node_inflow_capacity(self, sink_id: str) -> int:
+        total_capacity = 0
+        sink_vertex = self.get_vertex(sink_id)
+        if sink_vertex is None:
+            return total_capacity
+        for edge in sink_vertex.in_edges():
+            source_vertex = edge.source()
+            source_id = self.vertex_id[source_vertex]
+            if '_' in source_id:
+                capacity = int(self.capacity[edge])
+                total_capacity += capacity
+        return total_capacity
 
 
     def _create_graph(self, edges: List[Tuple[str, str]], capacities: List[int], tokens: List[str]) -> Graph:
@@ -1079,6 +1137,28 @@ class ORToolsGraph(BaseGraph):
                     self.solver.head(i) == v_idx):
                     return self.solver.capacity(i)
         return None
+    
+    def get_node_outflow_capacity(self, source_id: str) -> int:
+        total_capacity = 0
+        if source_id not in self.g_nx:
+            return total_capacity
+        for neighbor in self.g_nx.successors(source_id):
+            if '_' in neighbor:
+                edge_data = self.g_nx.get_edge_data(source_id, neighbor)
+                capacity = edge_data.get('capacity', 0)
+                total_capacity += capacity
+        return total_capacity
+
+    def get_node_inflow_capacity(self, sink_id: str) -> int:
+        total_capacity = 0
+        if sink_id not in self.g_nx:
+            return total_capacity
+        for predecessor in self.g_nx.predecessors(sink_id):
+            if '_' in predecessor:
+                edge_data = self.g_nx.get_edge_data(predecessor, sink_id)
+                capacity = edge_data.get('capacity', 0)
+                total_capacity += capacity
+        return total_capacity
     
 
     def has_vertex(self, vertex_id: str) -> bool:

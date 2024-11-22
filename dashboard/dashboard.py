@@ -174,14 +174,16 @@ class NetworkFlowDashboard:
             return
 
         try:
-            # Update status
+            # Update status through analysis component
             self.analysis.update_status("Running analysis...", 'progress')
             
             # Get analysis parameters
             source = self.analysis.source
             sink = self.analysis.sink
             flow_func = self.analysis.get_algorithm_func()
-            cutoff = self.analysis.requested_flow_mCRC or None
+            
+            # Empty string means max flow (no cutoff)
+            requested_flow = self.analysis.requested_flow_mCRC if str(self.analysis.requested_flow_mCRC).strip().isdigit() else None
 
             # Validate addresses
             if not (source and sink):
@@ -189,24 +191,51 @@ class NetworkFlowDashboard:
 
             # Run analysis with timing
             start_time = time.time()
-            self.results = self.graph_manager.analyze_flow(
+            
+            # When requested_flow is None, compute_flow will calculate maximum flow
+            results = self.graph_manager.analyze_flow(
                 source=source,
                 sink=sink,
                 flow_func=flow_func,
-                cutoff=cutoff
+                cutoff=requested_flow  # None means compute max flow
             )
             computation_time = time.time() - start_time
 
-            # Update visualization using the visualization component
-            self.update_results_view(computation_time)
-            self.analysis.update_status("Analysis completed successfully", 'success')
+            # Update visualization with results
+            flow_value, simplified_paths, simplified_edge_flows, original_edge_flows = results
+            
+            # Update path stats directly - pass None for requested_flow to indicate max flow calculation
+            self.visualization._update_path_stats(
+                source=source,
+                sink=sink,
+                flow_value=flow_value,
+                simplified_paths=simplified_paths,
+                simplified_edge_flows=simplified_edge_flows,
+                original_edge_flows=original_edge_flows,
+                computation_time=computation_time,
+                algorithm=self.analysis.algorithm,
+                requested_flow=requested_flow
+            )
+
+            # Update visualization view
+            self.visualization.update_view(
+                results=results,
+                computation_time=computation_time,
+                graph_manager=self.graph_manager,
+                algorithm=self.analysis.algorithm
+            )
+
+            # Update status with success message
+            if requested_flow is None:
+                self.analysis.update_status(f"Maximum flow analysis completed successfully", 'success')
+            else:
+                self.analysis.update_status(f"Flow analysis completed successfully", 'success')
 
         except Exception as e:
             error_msg = f"Analysis Error: {str(e)}"
             print(f"Detailed error: {str(e)}")
             self.analysis.update_status(error_msg, 'error')
-            self.results = None
-            self.update_results_view(0)
+            self.visualization.update_view()
 
     def _create_sidebar(self):
         """Create the dashboard sidebar with proper spacing."""

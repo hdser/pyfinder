@@ -10,6 +10,42 @@ from src.graph import NetworkXGraph, GraphToolGraph, BaseGraph
 from .base_component import BaseComponent
 from .interactive_visualization import InteractiveVisualization
 
+
+pn.config.raw_css.append("""
+.section-title {
+    background: #f8f9fa;
+    padding: 15px 20px;
+    margin: 0 0 20px 0;
+    border-radius: 8px;
+    border-left: 5px solid #007bff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.section-title h1 {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 24px;
+    font-weight: 500;
+}
+
+/* Alternative style for subsections if needed */
+.subsection-title {
+    background: #e9ecef;
+    padding: 12px 20px;
+    margin: 0 0 15px 0;
+    border-radius: 6px;
+    border-left: 4px solid #6c757d;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.subsection-title h1 {
+    margin: 0;
+    color: #495057;
+    font-size: 20px;
+    font-weight: 500;
+}
+""")
+
 class VisualizationComponent(BaseComponent):
     """Component for visualizing network flow analysis results."""
     
@@ -21,6 +57,25 @@ class VisualizationComponent(BaseComponent):
 
     def _create_components(self):
         """Create visualization components with improved layout."""
+        # Create graph visualization panes first
+        self.full_graph_pane = pn.pane.Bokeh(
+            sizing_mode='stretch_width',
+            height=500,
+            margin=(0, 0, 5, 0)
+        )
+        
+        self.flow_graph_pane = pn.pane.Bokeh(
+            sizing_mode='stretch_width',
+            height=450,
+            margin=(0, 0, 5, 0)
+        )
+        
+        self.simplified_graph_pane = pn.pane.Bokeh(
+            sizing_mode='stretch_width',
+            height=450,
+            margin=(0, 0, 5, 0)
+        )
+
         # Create panes for statistics
         self.network_stats = pn.pane.HTML(
             "Network statistics will appear here",
@@ -51,7 +106,6 @@ class VisualizationComponent(BaseComponent):
 
         # Create layout for metrics and histogram
         self.stats_bottom = pn.Row(
-            self.metrics_pane,
             self.histogram_pane,
             sizing_mode='stretch_width'
         )
@@ -63,15 +117,8 @@ class VisualizationComponent(BaseComponent):
             sizing_mode='stretch_width',
             margin=(0, 0, 20, 0)
         )
-        
-        self.path_stats = pn.pane.Markdown(
-            "Path analysis results will appear here",
-            styles={'background': '#f8f9fa', 'padding': '15px', 
-                   'border-radius': '5px', 'border': '1px solid #dee2e6'},
-            sizing_mode='stretch_width'
-        )
-        
-        
+
+        # Progress indicator
         self.network_load_progress = pn.indicators.Progress(
             name='Loading Network',
             value=0,
@@ -79,24 +126,35 @@ class VisualizationComponent(BaseComponent):
             visible=False,
             width=200
         )
-        
-        # Graph visualization panes
-        self.full_graph_pane = pn.pane.Bokeh(
-            sizing_mode='stretch_width',
-            height=500,
-            margin=(0, 0, 5, 0)
+
+        # Flow info panes
+        self.flow_info_pane = pn.pane.HTML(
+            "",
+            sizing_mode='stretch_width'
         )
         
-        self.flow_graph_pane = pn.pane.Bokeh(
-            sizing_mode='stretch_width',
-            height=450,
-            margin=(0, 0, 5, 0)
+        self.path_analysis_pane = pn.pane.HTML(
+            "",
+            sizing_mode='stretch_width'
         )
-        
-        self.simplified_graph_pane = pn.pane.Bokeh(
+
+        # Create layout for path analysis
+        self.path_stats_top = pn.Row(
+            self.flow_info_pane,
+            sizing_mode='stretch_width'
+        )
+
+        self.path_stats_bottom = pn.Row(
+            self.path_analysis_pane,
+            sizing_mode='stretch_width'
+        )
+
+        # Combine into final path stats layout
+        self.path_stats_layout = pn.Column(
+            self.path_stats_top,
+            self.path_stats_bottom,
             sizing_mode='stretch_width',
-            height=450,
-            margin=(0, 0, 5, 0)
+            margin=(0, 0, 20, 0)
         )
         
         # Transactions box
@@ -115,9 +173,12 @@ class VisualizationComponent(BaseComponent):
         
         # Create the flow section for use in view()
         self.flow_section = pn.Column(
-            pn.pane.Markdown("# Flow Analysis", 
-                        css_classes=['section-title']),
-            self.path_stats,
+            pn.pane.Markdown(
+                "# Flow Analysis", 
+                css_classes=['section-title'],
+                margin=(0, 0, 20, 0)
+            ),
+            self.path_stats_layout,  # Use path_stats_layout instead of path_stats
             pn.Tabs(
                 ("Full Flow Network", pn.Column(
                     self.flow_graph_pane,
@@ -135,30 +196,78 @@ class VisualizationComponent(BaseComponent):
             visible=False  # Hide initially
         )
 
-    def _update_path_stats(self, flow_value, simplified_paths, simplified_edge_flows, 
-                      original_edge_flows, computation_time, algorithm):
-        """Update the path analysis statistics."""
-        stats = f"""
-        ### Flow Analysis Results
+        self.capacity_metrics_pane = pn.pane.HTML(
+            "",
+            sizing_mode='stretch_width'
+        )
         
-        **Flow Information**
-        - Total Flow Value: {flow_value:,} mCRC
-        - Computation Time: {computation_time:.4f} seconds
-        - Algorithm Used: {algorithm}
+        # Update stats layout to include capacity metrics
+        self.stats_layout = pn.Column(
+            self.stats_top,
+            self.metrics_pane,
+            self.capacity_metrics_pane,
+            self.stats_bottom,
+            sizing_mode='stretch_width',
+            margin=(0, 0, 20, 0)
+        )
 
-        **Path Analysis**
-        - Number of Distinct Paths: {len(simplified_paths)}
-        - Total Transfers: {sum(len(flows) for flows in simplified_edge_flows.values())}
-        - Original Edges: {len(original_edge_flows)}
-        - Simplified Edge Groups: {len(simplified_edge_flows)}
-        """
-        
-        if hasattr(self, 'path_stats'):
-            self.path_stats.object = stats
-        
-        # Also update the main stats pane
-        if hasattr(self, 'stats_pane'):
-            self.stats_pane.object = stats
+    def _update_path_stats(self, source: int, sink: int, flow_value: int, simplified_paths: list, 
+                          simplified_edge_flows: dict, original_edge_flows: dict, 
+                          computation_time: float, algorithm: str, requested_flow: Optional[str] = None):
+        """Update the path analysis statistics."""
+        try:
+            # Calculate metrics
+            source_id = self.graph_manager.data_ingestion.get_id_for_address(source)
+            sink_id = self.graph_manager.data_ingestion.get_id_for_address(sink)
+            source_outflow = self.graph_manager.graph.get_node_outflow_capacity(source_id)
+            sink_inflow = self.graph_manager.graph.get_node_inflow_capacity(sink_id)
+            theoretical_max = min(source_outflow, sink_inflow)
+            
+            # Calculate flow gap
+            if requested_flow is not None and requested_flow.strip():
+                target_flow = int(requested_flow)
+                flow_gap = target_flow - flow_value
+                flow_gap_percentage = (flow_gap / target_flow * 100) if target_flow > 0 else 0
+                comparison_text = "Requested Flow"
+            else:
+                target_flow = theoretical_max
+                flow_gap = theoretical_max - flow_value
+                flow_gap_percentage = (flow_gap / theoretical_max * 100) if theoretical_max > 0 else 0
+                comparison_text = "Theoretical Maximum"
+
+            # Format flow information
+            flow_info = {
+                "Achieved Flow": f"{flow_value:,} mCRC",
+                comparison_text: f"{target_flow:,} mCRC",
+                "Flow Gap": f"{flow_gap:,} mCRC ({flow_gap_percentage:.2f}%)",
+                "Flow Type": "Maximum Flow" if requested_flow is None else "Requested Flow",
+                "Computation Time": f"{computation_time:.4f} seconds",
+                "Algorithm": algorithm,
+                "Source Max Outflow": f"{source_outflow:,} mCRC",
+                "Sink Max Inflow": f"{sink_inflow:,} mCRC"
+            }
+
+            # Format path analysis metrics
+            path_flows = [path[2] for path in simplified_paths]
+            path_info = {
+                "Distinct Paths": f"{len(simplified_paths):,}",
+                "Total Transfers": f"{sum(len(flows) for flows in simplified_edge_flows.values()):,}",
+                "Original Edges": f"{len(original_edge_flows):,}",
+                "Simplified Groups": f"{len(simplified_edge_flows):,}",
+                "Average Flow per Path": f"{flow_value / len(simplified_paths):,.2f} mCRC" if simplified_paths else "0",
+                "Min Flow Path": f"{min(path_flows):,.2f} mCRC",
+                "Max Flow Path": f"{max(path_flows):,.2f} mCRC"
+            }
+
+            # Update displays using the existing _format_stats_box method
+            self.flow_info_pane.object = self._format_stats_box("Flow Information", flow_info)
+            self.path_analysis_pane.object = self._format_stats_box("Path Analysis", path_info)
+
+        except Exception as e:
+            print(f"Error updating path stats: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Error updating path stats: {str(e)}")
 
    
     def _initialize_section_contents(self):
@@ -226,8 +335,11 @@ class VisualizationComponent(BaseComponent):
             
             # Create new network section with updated graph
             network_section = pn.Column(
-                pn.pane.Markdown("# Network Overview", 
-                            css_classes=['section-title']),
+                pn.pane.Markdown(
+                    "# Network Stats", 
+                    css_classes=['section-title'],
+                    margin=(0, 0, 20, 0)
+                ),
                 self.network_stats,
                 pn.Row(
                     self.network_load_progress,
@@ -254,42 +366,92 @@ class VisualizationComponent(BaseComponent):
             self.network_load_progress.visible = False
 
     def _update_network_stats(self, graph: BaseGraph):
-        """Update network statistics with consistent boxed layout and histogram."""
+        """Update network statistics with consistent boxed layout and detailed metrics."""
         try:
             # Calculate all metrics first
             all_nodes = graph.get_vertices()
             real_nodes = {v for v in all_nodes if '_' not in v}
             intermediate_nodes = {v for v in all_nodes if '_' in v}
-            connected_nodes = {v for v in real_nodes if graph.degree(v) > 0}
+
+            # Calculate source/sink nodes
+            isolated_nodes = {v for v in real_nodes if graph.degree(v) == 0}
 
             # Format overview stats
             overview_stats = {
                 "Total Real Nodes": f"{len(real_nodes):,}",
                 "Total Intermediate Nodes": f"{len(intermediate_nodes):,}",
                 "Total Edges": f"{graph.num_edges():,}",
-                "Connected Nodes": f"{len(connected_nodes):,}"
+                "Isolated Nodes": f"{len(isolated_nodes):,}"
             }
             overview_md = self._format_stats_box("Network Overview", overview_stats)
             self.network_stats.object = overview_md
 
             # Calculate detailed network metrics
+            out_degrees = [graph.out_degree(v) for v in all_nodes]
+            in_degrees = [graph.in_degree(v) for v in all_nodes]
+            total_degrees = [graph.degree(v) for v in all_nodes]
+
             metrics = {
-                "Edge-Vertex Ratio": f"{graph.num_edges() / len(real_nodes):.4f}" if len(real_nodes) > 0 else "0",
-                "Graph Density": f"{self._calculate_density(graph, connected_nodes):.6f}",
-                "Average Total Degree": f"{sum(graph.degree(v) for v in connected_nodes) / len(connected_nodes):.4f}",
-                "Average In-Degree": f"{sum(graph.in_degree(v) for v in connected_nodes) / len(connected_nodes):.4f}",
-                "Average Out-Degree": f"{sum(graph.out_degree(v) for v in connected_nodes) / len(connected_nodes):.4f}",
-                "Maximum In-Degree": f"{max(graph.in_degree(v) for v in connected_nodes):,}",
-                "Maximum Out-Degree": f"{max(graph.out_degree(v) for v in connected_nodes):,}",
-                "Median Degree": f"{sorted(graph.degree(v) for v in connected_nodes)[len(connected_nodes) // 2]:,}"
+                "Edge-Vertex Ratio": f"{graph.num_edges() / len(all_nodes):.4f}" if len(all_nodes) > 0 else "0",
+                "Average Total Degree": f"{np.mean(total_degrees):.4f}",
+                "Median Total Degree": f"{np.median(total_degrees):.4f}",
+                "Maximum Total Degree": f"{max(total_degrees):,}",
+                "Average Out-Degree": f"{np.mean(out_degrees):.4f}",
+                "Median Out-Degree": f"{np.median(out_degrees):.4f}",
+                "Maximum Out-Degree": f"{max(out_degrees):,}",
+                "Average In-Degree": f"{np.mean(in_degrees):.4f}",
+                "Median In-Degree": f"{np.median(in_degrees):.4f}",
+                "Maximum In-Degree": f"{max(in_degrees):,}"
             }
             metrics_md = self._format_stats_box("Network Metrics", metrics)
             self.metrics_pane.object = metrics_md
 
-            # Calculate connection counts for intermediate nodes
-            connection_counts = [graph.degree(node) for node in intermediate_nodes]
+            # Calculate capacity metrics
+            capacity_metrics = self._calculate_capacity_metrics(graph)
+            capacity_md = self._format_stats_box("Capacity Metrics (mCRC)", capacity_metrics)
+            self.capacity_metrics_pane.object = capacity_md
 
-            # Create histogram
+            # Create and update histogram
+            self._create_connection_histogram(graph, intermediate_nodes)
+
+        except Exception as e:
+            print(f"Error updating network stats: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Error updating network stats: {str(e)}")
+
+    def _calculate_capacity_metrics(self, graph: BaseGraph) -> dict:
+        """Calculate capacity-related metrics for the network."""
+        try:
+            edge_capacities = []
+            real_capacities = {}
+
+            # Collect capacities
+            for u, v, data in graph.get_edges():
+                capacity = data.get('capacity', 0)
+                edge_capacities.append(capacity)
+                
+                # Track capacities through intermediate nodes
+                if '_' in v:
+                    real_capacities[v] = real_capacities.get(v, 0) + capacity
+                
+
+            # Calculate metrics
+            metrics = {
+                "Total Network Capacity": f"{sum(list(real_capacities.values())):,}",
+                "Average Node Capacity": f"{np.mean(list(real_capacities.values())):,.2f}",
+                "Median Node Capacity": f"{np.median(list(real_capacities.values())):,.2f}",
+                "Maximum Node Capacity": f"{max(real_capacities.values()):,}",
+                "Minimum Node Capacity": f"{min(real_capacities.values()):,}",
+            }
+            return metrics
+        except Exception as e:
+            print(f"Error calculating capacity metrics: {str(e)}")
+            return {"Error": "Failed to calculate capacity metrics"}
+
+    def _create_connection_histogram(self, graph: BaseGraph, intermediate_nodes: set):
+        """Create histogram visualization for intermediate node connections."""
+        try:
             import numpy as np
             from bokeh.plotting import figure
             from bokeh.models import (
@@ -300,8 +462,11 @@ class VisualizationComponent(BaseComponent):
                 Grid
             )
 
+            # Calculate connection counts
+            connection_counts = [graph.degree(node) for node in intermediate_nodes]
+
             # Calculate histogram data
-            hist, edges = np.histogram(connection_counts, bins=50)
+            hist, edges = np.histogram(connection_counts, bins=150)
             
             # Create source data
             source = ColumnDataSource(data=dict(
@@ -348,23 +513,8 @@ class VisualizationComponent(BaseComponent):
                 hover_fill_alpha=1.0
             )
 
-            # Style axes
-            p.xaxis.axis_label = 'Number of Connections'
-            p.yaxis.axis_label = 'Frequency'
-            p.xgrid.grid_line_color = None
-            p.ygrid.grid_line_color = '#e0e0e0'
-            p.ygrid.grid_line_alpha = 0.5
-            p.background_fill_color = "#f8f9fa"
-            p.border_fill_color = "white"
-            p.outline_line_color = None
-            
-            # Customize axis appearance
-            p.axis.axis_line_color = None
-            p.axis.major_tick_line_color = None
-            p.axis.minor_tick_line_color = None
-            p.axis.axis_label_text_font_size = '12px'
-            p.axis.axis_label_text_font_style = 'normal'
-            p.axis.axis_label_text_color = '#666666'
+            # Style axes and plot
+            self._style_histogram_plot(p)
 
             # Add mean line
             mean_value = np.mean(connection_counts)
@@ -381,23 +531,40 @@ class VisualizationComponent(BaseComponent):
             # Update histogram pane
             self.histogram_pane.object = p
 
-            # Calculate connection statistics
+            # Calculate and update connection statistics
             connection_stats = {
-                "Average Connections": f"{np.mean(connection_counts):.2f}",
+                "Average Connections": f"{np.mean(connection_counts):.0f}",
                 "Median Connections": f"{np.median(connection_counts):.0f}",
                 "Maximum Connections": f"{np.max(connection_counts):,}",
-                "Minimum Connections": f"{np.min(connection_counts):,}",
-                "Standard Deviation": f"{np.std(connection_counts):.2f}",
-                "Total Intermediate Nodes": f"{len(intermediate_nodes):,}"
+                "Minimum Connections": f"{np.min(connection_counts):,}"
             }
             stats_md = self._format_stats_box("Intermediate Node Statistics", connection_stats)
             self.histogram_stats_pane.object = stats_md
 
         except Exception as e:
-            print(f"Error updating network stats: {str(e)}")
+            print(f"Error creating histogram: {str(e)}")
             import traceback
             traceback.print_exc()
-            self._show_error(f"Error updating network stats: {str(e)}")
+
+    def _style_histogram_plot(self, p: figure):
+        """Apply consistent styling to histogram plot."""
+        # Style axes
+        p.xaxis.axis_label = 'Number of Connections'
+        p.yaxis.axis_label = 'Frequency'
+        p.xgrid.grid_line_color = None
+        p.ygrid.grid_line_color = '#e0e0e0'
+        p.ygrid.grid_line_alpha = 0.5
+        p.background_fill_color = "#f8f9fa"
+        p.border_fill_color = "white"
+        p.outline_line_color = None
+        
+        # Customize axis appearance
+        p.axis.axis_line_color = None
+        p.axis.major_tick_line_color = None
+        p.axis.minor_tick_line_color = None
+        p.axis.axis_label_text_font_size = '12px'
+        p.axis.axis_label_text_font_style = 'normal'
+        p.axis.axis_label_text_color = '#666666'
 
     def _format_stats_box(self, title: str, stats: Dict[str, str]) -> str:
         """Format statistics in a consistent boxed layout."""
@@ -476,63 +643,6 @@ class VisualizationComponent(BaseComponent):
             "Degree Variance": self._calculate_variance(total_degrees)
         }
 
-    def _calculate_connectivity_metrics(self, graph: BaseGraph, nodes: Set[str]) -> Dict[str, Union[float, int]]:
-        """Calculate connectivity metrics using only BaseGraph interface methods."""
-        metrics = {}
-        
-        # Calculate number of source and sink nodes
-        sources = sum(1 for v in nodes if graph.in_degree(v) == 0 and graph.out_degree(v) > 0)
-        sinks = sum(1 for v in nodes if graph.out_degree(v) == 0 and graph.in_degree(v) > 0)
-        
-        # Calculate reciprocity (bi-directional edges)
-        reciprocal_edges = 0
-        total_edges = 0
-        for u in nodes:
-            for v in nodes:
-                if graph.has_edge(u, v):
-                    total_edges += 1
-                    if graph.has_edge(v, u):
-                        reciprocal_edges += 1
-        
-        reciprocity = reciprocal_edges / total_edges if total_edges > 0 else 0
-        
-        metrics.update({
-            "Source Nodes": sources,
-            "Sink Nodes": sinks,
-            "Reciprocity": reciprocity,
-            "Bi-directional Edge Ratio": reciprocity / 2  # Divide by 2 to avoid counting twice
-        })
-        
-        return metrics
-
-    def _calculate_flow_metrics(self, graph: BaseGraph, nodes: Set[str]) -> Dict[str, Union[float, int]]:
-        """Calculate flow and capacity related metrics."""
-        metrics = {}
-        
-        # Calculate total and average capacity
-        total_capacity = 0
-        capacity_count = 0
-        max_capacity = float('-inf')
-        min_capacity = float('inf')
-        
-        for u, v, _ in graph.get_edges():
-            if u in nodes and v in nodes:
-                capacity = graph.get_edge_capacity(u, v)
-                if capacity is not None:
-                    total_capacity += capacity
-                    capacity_count += 1
-                    max_capacity = max(max_capacity, capacity)
-                    min_capacity = min(min_capacity, capacity)
-        
-        if capacity_count > 0:
-            metrics.update({
-                "Total Edge Capacity": total_capacity,
-                "Average Edge Capacity": total_capacity / capacity_count,
-                "Maximum Edge Capacity": max_capacity,
-                "Minimum Edge Capacity": min_capacity
-            })
-        
-        return metrics
 
     def _calculate_variance(self, values: List[float]) -> float:
         """Calculate variance of a list of values."""
@@ -542,70 +652,6 @@ class VisualizationComponent(BaseComponent):
         squared_diff_sum = sum((x - mean) ** 2 for x in values)
         return squared_diff_sum / len(values)
 
-    def _create_metrics_table(self, title: str, metrics: Dict[str, Any]) -> str:
-        """Create an HTML table for a set of metrics."""
-        if not metrics:
-            return ""
-            
-        html = f"""
-        <div class="metrics-section">
-            <div class="metrics-title">{title}</div>
-            <table class="metrics-table">
-                <tr>
-                    <th>Metric</th>
-                    <th>Value</th>
-                </tr>
-        """
-        
-        for metric, value in metrics.items():
-            formatted_value = (
-                f"{value:,.4f}" if isinstance(value, float) 
-                else f"{value:,}" if isinstance(value, int)
-                else str(value)
-            )
-            html += f"""
-                <tr>
-                    <td>{metric}</td>
-                    <td class="metric-value">{formatted_value}</td>
-                </tr>
-            """
-        
-        html += """
-            </table>
-        </div>
-        """
-        return html
-
-    def _calculate_path_metrics(self, graph: BaseGraph, connected_nodes: Set[str]) -> Dict[str, float]:
-        """Calculate path-related metrics for the network."""
-        try:
-            nx_graph = graph.to_networkx()
-            subgraph = nx_graph.subgraph(connected_nodes)
-            
-            # Sample a subset of nodes for path calculations if graph is large
-            sample_size = min(100, len(connected_nodes))
-            sample_nodes = random.sample(list(connected_nodes), sample_size)
-            
-            path_lengths = []
-            for u in sample_nodes:
-                for v in sample_nodes:
-                    if u != v:
-                        try:
-                            path_length = nx.shortest_path_length(subgraph, u, v)
-                            path_lengths.append(path_length)
-                        except nx.NetworkXNoPath:
-                            continue
-            
-            if path_lengths:
-                return {
-                    "Average Path Length": sum(path_lengths) / len(path_lengths),
-                    "Max Path Length (Diameter)": max(path_lengths),
-                    "Min Path Length": min(path_lengths)
-                }
-        except Exception as e:
-            print(f"Error calculating path metrics: {str(e)}")
-        
-        return {}
 
     def initialize_graph(self, graph_manager):
         """Initialize with a graph manager."""
@@ -635,7 +681,7 @@ class VisualizationComponent(BaseComponent):
             self.network_load_progress.visible = False
 
     
-    def update_view(self, results, computation_time, graph_manager, algorithm):
+    def update_view(self, results=None, computation_time=0, graph_manager=None, algorithm=None):
         """Update all visualization elements with new analysis results."""
         if results is None:
             self._show_no_results()
@@ -648,15 +694,24 @@ class VisualizationComponent(BaseComponent):
             self.flow_section.visible = True
             self.transactions_box.visible = True
 
-            # Update path analysis statistics
-            self._update_path_stats(
-                flow_value=flow_value,
-                simplified_paths=simplified_paths,
-                simplified_edge_flows=simplified_edge_flows,
-                original_edge_flows=original_edge_flows,
-                computation_time=computation_time,
-                algorithm=algorithm
-            )
+            # Store any requested flow value from the current state
+            current_requested_flow = None
+            if hasattr(self, 'analysis') and hasattr(self.analysis, 'requested_flow_mCRC'):
+                current_requested_flow = self.analysis.requested_flow_mCRC if self.analysis.requested_flow_mCRC.strip() else None
+
+            # Update path analysis statistics only once
+            if hasattr(self, 'source') and hasattr(self, 'sink'):
+                self._update_path_stats(
+                    source=self.source,
+                    sink=self.sink,
+                    flow_value=flow_value,
+                    simplified_paths=simplified_paths,
+                    simplified_edge_flows=simplified_edge_flows,
+                    original_edge_flows=original_edge_flows,
+                    computation_time=computation_time,
+                    algorithm=algorithm,
+                    requested_flow=current_requested_flow
+                )
 
             # Update flow visualizations
             if graph_manager:
@@ -757,6 +812,7 @@ class VisualizationComponent(BaseComponent):
         sorted_transfers.sort(key=lambda x: x[3], reverse=True)
         
         # Create HTML for each transfer
+        tf_json = []
         for u, v, token, flow in sorted_transfers:
             u_address = graph_manager.data_ingestion.get_address_for_id(u)
             v_address = graph_manager.data_ingestion.get_address_for_id(v)
@@ -780,6 +836,17 @@ class VisualizationComponent(BaseComponent):
                    
                 </div>
             </li>"""
+
+        #    tf_json.append({
+        #        "from": u_address,
+        #        "to": v_address,
+        #        "token": token_address,
+        #        "flow": flow * 10**15
+        #    })
+
+        #import json
+        #with open('transfer_data.json', 'w') as f:
+        #    json.dump(tf_json, f)
         
         transactions += "</ul>"
         
@@ -849,13 +916,12 @@ class VisualizationComponent(BaseComponent):
         """Return the component's view with updated controls."""
         # Network Overview Section with improved layout
         network_section = pn.Column(
-            pn.pane.Markdown("# Network Overview", 
+            pn.pane.Markdown("# Network Stats", 
                         css_classes=['section-title']),
-            #self.network_stats,
             self.stats_layout,
             sizing_mode='stretch_width',
             css_classes=['section-content'],
-            margin=(0, 0, 20, 0)  # Add bottom margin
+            margin=(0, 0, 20, 0)  
         )
         
         # Store main view for later updates
