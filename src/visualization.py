@@ -1,15 +1,19 @@
+# src/visualization.py
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from typing import List, Tuple, Dict, Union
 import os
-import io
 from collections import defaultdict
+from .graph import BaseGraph
 
 class Visualization:
+    """Handle visualization of graph and flow analysis results."""
+
     @staticmethod
     def add_id_address_mapping(fig, ax, id_to_address: Dict[str, str], nodes: List[str], edge_data):
+        """Add mapping between IDs and addresses to the visualization."""
         mapping_text = "ID to Address Mapping:\n\n"
         added_ids = set()
 
@@ -37,8 +41,8 @@ class Visualization:
         ax.axis('off')
 
     @staticmethod
-    @staticmethod
     def custom_flow_layout(G, source, sink, horizontal_spacing=10, vertical_spacing=2):
+        """Create a custom hierarchical layout for the flow graph."""
         def bfs_levels(G, source):
             levels = {source: 0}
             queue = [(source, 0)]
@@ -72,15 +76,14 @@ class Visualization:
 
         return pos
 
-    
-
-    @staticmethod
-    def plot_flow_paths(g: Union[nx.DiGraph, 'GraphToolGraph'], paths: List[Tuple[List[str], List[str], float]],
-                        edge_flows: Dict[Tuple[str, str], List[Dict[str, float]]],
-                        id_to_address: Dict[str, str], filename: str = 'flow_paths.png'):
-        if not paths:
+    def plot_flow_paths(self, graph: BaseGraph, simplified_paths: List, 
+                       simplified_edge_flows: Dict, id_to_address: Dict[str, str], 
+                       filename: str = 'flow_paths.png'):
+        """Plot simplified flow paths."""
+        if not simplified_paths:
             plt.figure(figsize=(8, 6))
-            plt.text(0.5, 0.5, "No flow paths found", horizontalalignment='center', verticalalignment='center', fontsize=16)
+            plt.text(0.5, 0.5, "No flow paths found", horizontalalignment='center', 
+                    verticalalignment='center', fontsize=16)
             plt.axis('off')
             plt.savefig(filename, dpi=600, bbox_inches='tight')
             plt.close()
@@ -89,17 +92,18 @@ class Visualization:
 
         flow_graph = nx.MultiDiGraph()
 
-        for (u, v), token_flows in edge_flows.items():
+        for (u, v), token_flows in simplified_edge_flows.items():
             for token, flow in token_flows.items():
                 flow_graph.add_edge(u, v, flow=flow, token=token)
 
-        source = paths[0][0][0]
-        sink = paths[0][0][-1]
+        source = simplified_paths[0][0][0]
+        sink = simplified_paths[0][0][-1]
 
-        pos = Visualization.custom_flow_layout(flow_graph, source, sink)
+        pos = self.custom_flow_layout(flow_graph, source, sink)
         fig, ax = plt.subplots(figsize=(20, 10))
 
-        nx.draw_networkx_nodes(flow_graph, pos, ax=ax, node_color='lightblue', node_shape='o', node_size=500)
+        nx.draw_networkx_nodes(flow_graph, pos, ax=ax, node_color='lightblue', 
+                             node_shape='o', node_size=500)
         nx.draw_networkx_labels(flow_graph, pos, font_size=8, font_weight='bold', ax=ax)
 
         edges_between_nodes = defaultdict(list)
@@ -135,7 +139,7 @@ class Visualization:
                 midpoint = np.array([(x1 + x2) / 2, (y1 + y2) / 2]) + offset
 
                 ax.text(midpoint[0], midpoint[1], label, fontsize=6, ha='center', va='center', 
-                        bbox=dict(facecolor='white', edgecolor='none', alpha=0.7), zorder=2)
+                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.7), zorder=2)
 
         ax.set_title("Simplified Flow Paths", fontsize=16)
         ax.axis('off')
@@ -145,23 +149,25 @@ class Visualization:
         plt.close()
         print(f"Simplified flow paths graph saved to {filename}")
 
-    @staticmethod
-    def plot_full_flow_paths(g: Union['NetworkXGraph', 'GraphToolGraph'], edge_flows: Dict[Tuple[str, str], float], 
-                             id_to_address: Dict[str, str], filename: str):
+    def plot_full_flow_paths(self, graph: BaseGraph, edge_flows: Dict,
+                           id_to_address: Dict[str, str], filename: str):
+        """Plot full flow paths including intermediate nodes."""
         flow_graph = nx.DiGraph()
         for (u, v), flow in edge_flows.items():
             if flow > 0:
-                if g.has_edge(u, v):
-                    edge_data = g.get_edge_data(u, v)
+                edge_data = {}
+                if graph.has_edge(u, v):
+                    edge_data = graph.get_edge_data(u, v)
                     token = edge_data.get('label')
                 else:
-                    print(f"Warning: Edge ({u}, {v}) not found in graph g.")
+                    print(f"Warning: Edge ({u}, {v}) not found in graph.")
                     token = None
                 flow_graph.add_edge(u, v, flow=flow, token=token)
 
         if not flow_graph.nodes():
             plt.figure(figsize=(8, 6))
-            plt.text(0.5, 0.5, "No flow paths found", horizontalalignment='center', verticalalignment='center', fontsize=16)
+            plt.text(0.5, 0.5, "No flow paths found", horizontalalignment='center', 
+                    verticalalignment='center', fontsize=16)
             plt.axis('off')
             plt.savefig(filename, dpi=600, bbox_inches='tight')
             plt.close()
@@ -178,19 +184,23 @@ class Visualization:
         source = sources[0]
         sink = sinks[0]
 
-        pos = Visualization.custom_flow_layout(flow_graph, source, sink, horizontal_spacing=10, vertical_spacing=4)
+        pos = self.custom_flow_layout(flow_graph, source, sink, horizontal_spacing=10, vertical_spacing=4)
         fig, ax_graph = plt.subplots(1, 1, figsize=(20, 10))
         
         noncross_nodes = [node for node in flow_graph.nodes() if '_' not in node]
-        nx.draw_networkx_nodes(flow_graph, pos, ax=ax_graph, nodelist=noncross_nodes, node_color='lightblue', node_shape='o', node_size=300)
+        nx.draw_networkx_nodes(flow_graph, pos, ax=ax_graph, nodelist=noncross_nodes, 
+                             node_color='lightblue', node_shape='o', node_size=300)
         
         cross_nodes = [node for node in flow_graph.nodes() if '_' in node]
-        nx.draw_networkx_nodes(flow_graph, pos, ax=ax_graph, nodelist=cross_nodes, node_color='red', node_shape='P', node_size=200)
+        nx.draw_networkx_nodes(flow_graph, pos, ax=ax_graph, nodelist=cross_nodes, 
+                             node_color='red', node_shape='P', node_size=200)
         
-        nx.draw_networkx_edges(flow_graph, pos, ax=ax_graph, edge_color='gray', arrows=True, arrowsize=20, connectionstyle="arc3,rad=0.1")
+        nx.draw_networkx_edges(flow_graph, pos, ax=ax_graph, edge_color='gray', 
+                             arrows=True, arrowsize=20, connectionstyle="arc3,rad=0.1")
         
         labels = {node: node for node in flow_graph.nodes()}
-        nx.draw_networkx_labels(flow_graph, pos, labels, ax=ax_graph, font_size=8, font_weight='bold')
+        nx.draw_networkx_labels(flow_graph, pos, labels, ax=ax_graph, 
+                              font_size=8, font_weight='bold')
         
         edge_labels = {}
         for u, v, data in flow_graph.edges(data=True):
@@ -199,7 +209,8 @@ class Visualization:
                 label += f"\nID: {data['token']}"
             edge_labels[(u, v)] = label.strip()
         
-        nx.draw_networkx_edge_labels(flow_graph, pos, edge_labels=edge_labels, ax=ax_graph, font_size=6)
+        nx.draw_networkx_edge_labels(flow_graph, pos, edge_labels=edge_labels, 
+                                   ax=ax_graph, font_size=6)
 
         ax_graph.set_title("Full Flow Paths (including 'auxiliary' nodes)", fontsize=16)
         ax_graph.axis('off')
@@ -211,6 +222,7 @@ class Visualization:
 
     @staticmethod
     def ensure_output_directory(directory: str):
+        """Create output directory if it doesn't exist."""
         if not os.path.exists(directory):
             os.makedirs(directory)
             print(f"Created output directory: {directory}")
