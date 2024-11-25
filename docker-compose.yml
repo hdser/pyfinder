@@ -20,9 +20,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 6G
-        reservations:
           memory: 4G
+        reservations:
+          memory: 3G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5006"]
