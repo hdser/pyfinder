@@ -1,28 +1,29 @@
 import pandas as pd
 from typing import Dict, Union, Tuple
-import networkx as nx
-from .data_ingestion import DataIngestion, PostgresDataIngestion
-from .graph import NetworkXGraph, GraphToolGraph, GraphCreator
-from .flow_analysis import NetworkFlowAnalysis
-from .visualization import Visualization
 import random
 import time
 
-class GraphManager:
-    def __init__(self, data_source: Union[Tuple[str, str], Tuple[Dict[str, str], str]], graph_type: str = 'networkx'):
-        """
-        Initialize the GraphManager with either CSV files or PostgreSQL connection.
-        
-        Args:
-            data_source: Either:
-                - Tuple[str, str]: (trusts_file_path, balances_file_path) for CSV ingestion
-                - Tuple[Dict[str, str], str]: (db_config, queries_dir) for PostgreSQL ingestion
-            graph_type: Type of graph to create ('networkx' or 'graph_tool')
-        """
+from src.data_ingestion import DataIngestion, PostgresDataIngestion
+from src.graph import GraphCreator, NetworkXGraph, GraphToolGraph, ORToolsGraph, NetworkFlowAnalysis
+from src.visualization import Visualization
 
+class GraphManager:
+    """
+    Manages graph creation, analysis, and visualization for network flow problems.
+    
+    Coordinates between different components:
+    - Data ingestion (CSV or PostgreSQL)
+    - Graph implementation (NetworkX, graph-tool, or OR-Tools)
+    - Flow analysis
+    - Visualization
+    """
+
+    def __init__(self, data_source: Union[Tuple[str, str], Tuple[Dict[str, str], str]], 
+                 graph_type: str = 'networkx'):
+        """Initialize GraphManager with data source and graph implementation."""
         start = time.time()
         self.data_ingestion = self._initialize_data_ingestion(data_source)
-        print("Ingestion time: ",time.time()-start)
+        print("Ingestion time: ", time.time()-start)
         
         start = time.time()
         self.graph = GraphCreator.create_graph(
@@ -31,41 +32,37 @@ class GraphManager:
             self.data_ingestion.capacities, 
             self.data_ingestion.tokens
         )
-        print("Graph Creation time: ",time.time()-start)
+        print("Graph Creation time: ", time.time()-start)
         
-
         self.flow_analysis = NetworkFlowAnalysis(self.graph)
         self.visualization = Visualization()
 
     def _initialize_data_ingestion(self, data_source):
-        """
-        Initialize the appropriate data ingestion based on the data source type.
-        """
-        if not isinstance(data_source, tuple):
-            raise ValueError("data_source must be a tuple")
+        """Initialize the appropriate data ingestion based on the data source type."""
+        if not isinstance(data_source, tuple) or len(data_source) != 2:
+            raise ValueError("data_source must be a tuple with exactly 2 elements")
 
-        if len(data_source) != 2:
-            raise ValueError("data_source must have exactly 2 elements")
-
-        # Check if it's PostgreSQL configuration
         if isinstance(data_source[0], dict):
             db_config, queries_dir = data_source
             return PostgresDataIngestion(db_config, queries_dir)
         
-        # Otherwise, assume it's CSV files
         elif isinstance(data_source[0], str) and isinstance(data_source[1], str):
             trusts_file, balances_file = data_source
             try:
                 df_trusts = pd.read_csv(
-                        trusts_file, 
-                        dtype={'truster': 'str','trustee': 'str'},
-                        low_memory=False
-                    )
+                    trusts_file, 
+                    dtype={'truster': 'str', 'trustee': 'str'},
+                    low_memory=False
+                )
                 df_balances = pd.read_csv(
-                        balances_file, 
-                        dtype={'demurragedTotalBalance': 'float32','account': 'str','tokenAddress': 'str'}, 
-                        low_memory=False
-                    )
+                    balances_file, 
+                    dtype={
+                        'demurragedTotalBalance': 'float32',
+                        'account': 'str',
+                        'tokenAddress': 'str'
+                    }, 
+                    low_memory=False
+                )
                 return DataIngestion(df_trusts, df_balances)
             except Exception as e:
                 raise ValueError(f"Error reading CSV files: {str(e)}")
@@ -112,8 +109,10 @@ class GraphManager:
             total_edges = self.graph.num_edges()
             
             # Sample some nodes for display
-            sample_nodes = random.sample(list(self.graph.get_vertices()), 
-                                      min(5, self.graph.num_vertices()))
+            sample_nodes = random.sample(
+                list(self.graph.get_vertices()), 
+                min(5, self.graph.num_vertices())
+            )
             sample_info = []
             
             for node in sample_nodes:
@@ -130,4 +129,3 @@ class GraphManager:
                     
         except Exception as e:
             return f"Error getting node info: {str(e)}"
-        
