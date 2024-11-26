@@ -107,7 +107,7 @@ class ORToolsGraph(BaseGraph):
         start_time = time.time()
         status = self.solver.solve(source_idx, sink_idx)
         print(f"Solver Time: {time.time() - start_time}")
-        
+
         if status == self.solver.OPTIMAL:
             total_flow, flow_dict = self._build_flow_dict(
                 sink_idx, remaining_flow, direct_flow_dict

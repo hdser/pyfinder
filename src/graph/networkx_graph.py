@@ -1,4 +1,3 @@
-# src/graph/networkx_graph.py
 import networkx as nx
 import time
 from typing import List, Tuple, Dict, Any, Optional, Iterator, Set, Callable
@@ -7,10 +6,15 @@ from collections import defaultdict
 from .base import BaseGraph
 from .flow.decomposition import decompose_flow, simplify_paths
 from .flow.utils import verify_flow_conservation
+import logging
+
+# Configure logging for the module
+logger = logging.getLogger(__name__)
 
 class NetworkXGraph(BaseGraph):
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
         self.g_nx = self._create_graph(edges, capacities, tokens)
+        self.logger = logging.getLogger(__name__)
 
     def _create_graph(self, edges: List[Tuple[str, str]], capacities: List[float], 
                      tokens: List[str]) -> nx.DiGraph:
@@ -216,3 +220,220 @@ class NetworkXGraph(BaseGraph):
                 capacity = edge_data.get('capacity', 0)
                 total_capacity += capacity
         return total_capacity
+    
+
+    def prepare_arbitrage_graph(self, start_node: str, start_token: str, end_token: str) -> Tuple[str, str]:
+        """
+        Prepare graph for arbitrage analysis by modifying only outgoing edges from source.
+        
+        Args:
+            start_node: The actual source node ID
+            start_token: The token ID to start with 
+            end_token: The token ID to end with
+        """
+        try:
+            # Verify start intermediate node exists
+            start_intermediate = f"{start_node}_{start_token}"
+            if not self.has_vertex(start_intermediate):
+                self.logger.warning(f"No intermediate node found for {start_node} with token {start_token}")
+                return None, None
+
+            # Store outgoing edges in a list before modifying graph
+            self._temp_edges = []
+            outgoing_edges = [(u, v, d) for u, v, d in self.g_nx.out_edges(start_node, data=True)]
+            for (u, v, data) in outgoing_edges:
+                self._temp_edges.append((u, v, data.copy()))
+                self.g_nx.remove_edge(u, v)
+
+            # Add back only the edge to start token intermediate node
+            edge_data = next((data for _, v, data in self._temp_edges if v == start_intermediate), None)
+            if edge_data is None:
+                self.logger.warning(f"No edge found from {start_node} to {start_intermediate}")
+                self._restore_edges()
+                return None, None
+
+            # Add the single allowed outgoing edge
+            self.g_nx.add_edge(start_node, start_intermediate, **edge_data)
+            available_capacity = edge_data['capacity']
+            self.logger.info(f"Capacity from {start_node} to {start_intermediate}: {available_capacity}")
+
+            # Create virtual sink with unique ID
+            virtual_sink = f"virtual_sink_{start_node}_{start_token}_{end_token}"
+            self.g_nx.add_node(virtual_sink)
+
+            # Find and store potential end nodes before adding edges
+            end_positions = []
+            for u, v, data in list(self.g_nx.edges(data=True)):
+                if v == start_node and '_' in u:
+                    holder, token = u.split('_')
+                    if token == end_token:
+                        end_positions.append((u, data.get('capacity', 0)))
+
+            # Add edges to virtual sink
+            edges_added = 0
+            for position, capacity in end_positions:
+                # Capacity limited by both return edge capacity and initial capacity
+                limited_capacity = min(capacity, available_capacity)
+                self.g_nx.add_edge(
+                    position,
+                    virtual_sink,
+                    capacity=limited_capacity,
+                    label=end_token,
+                    is_virtual=True
+                )
+                edges_added += 1
+
+            if edges_added == 0:
+                self.logger.warning("No valid end states found for arbitrage")
+                self._restore_edges()
+                return None, None
+
+            self.logger.info(f"Added {edges_added} edges to virtual sink")
+            return start_node, virtual_sink
+
+        except Exception as e:
+            self.logger.error(f"Error preparing arbitrage graph: {e}")
+            self._restore_edges()
+            raise
+
+    def _restore_edges(self):
+        """Restore temporarily removed edges."""
+        try:
+            if hasattr(self, '_temp_edges'):
+                for u, v, data in self._temp_edges:
+                    self.g_nx.add_edge(u, v, **data)
+                delattr(self, '_temp_edges')
+        except Exception as e:
+            self.logger.error(f"Error restoring edges: {e}")
+            raise
+
+    def find_arbitrage(self, start_node: str, start_token: str, end_token: str,
+                  flow_func: Optional[Callable] = None) -> Tuple[int, List[Tuple[List[str], List[str], int]]]:
+        """Find arbitrage opportunities between tokens."""
+        try:
+            # Prepare graph for arbitrage
+            source, virtual_sink = self.prepare_arbitrage_graph(
+                start_node, start_token, end_token
+            )
+            
+            if source is None or virtual_sink is None:
+                return 0, [], {}, {}
+
+            # Compute maximum flow
+            flow_value, flow_dict = self.compute_flow(
+                source,
+                virtual_sink,
+                flow_func=flow_func
+            )
+
+            if flow_value == 0:
+                return 0, []
+
+            # Convert virtual sink flows to actual flows
+            real_flow_dict = self.interpret_arbitrage_flow(flow_dict, start_node, virtual_sink)
+            
+            # Find all cycles in the flow
+            cycles = []
+            residual_flows = defaultdict(dict)
+            
+            # Initialize residual flows
+            for u, flows in real_flow_dict.items():
+                for v, f in flows.items():
+                    if f > 0:
+                        residual_flows[u][v] = f
+            
+            # Find cycles using DFS from the start node
+            def find_cycle_dfs(node, path, visited, cycle_flow):
+                if len(path) > 1 and node == start_node:
+                    # Found a cycle
+                    cycles.append((path[:], cycle_flow))
+                    return
+                    
+                for next_node, flow in residual_flows[node].items():
+                    if flow > 0 and (next_node not in visited or next_node == start_node):
+                        new_flow = min(cycle_flow, flow)
+                        path.append(next_node)
+                        visited.add(next_node)
+                        find_cycle_dfs(next_node, path, visited, new_flow)
+                        visited.remove(next_node)
+                        path.pop()
+            
+            # Start cycle finding from start_node
+            start_id = f"{start_node}_{start_token}"
+            find_cycle_dfs(start_id, [start_id], {start_id}, float('inf'))
+            
+            # Convert cycles to the expected format
+            formatted_paths = []
+            edge_flows = {}
+            
+            for cycle, flow in cycles:
+                # Extract tokens from intermediate nodes
+                tokens = []
+                for node in cycle[1:]:  # Skip first node as it's already included
+                    if '_' in node:
+                        _, token = node.split('_')
+                        tokens.append(token)
+                        
+                formatted_paths.append((cycle, tokens, flow))
+                
+                # Record edge flows
+                for i in range(len(cycle) - 1):
+                    edge = (cycle[i], cycle[i + 1])
+                    edge_flows[edge] = edge_flows.get(edge, 0) + flow
+
+            return flow_value, formatted_paths, edge_flows
+
+        except Exception as e:
+            self.logger.error(f"Error finding arbitrage: {e}")
+            raise
+        finally:
+            # Clean up
+            self.cleanup_arbitrage_graph()
+
+    def interpret_arbitrage_flow(self, flow_dict: Dict[str, Dict[str, int]], 
+                           start_node: str, virtual_sink: str) -> Dict[str, Dict[str, int]]:
+        """Convert flows through virtual sink back to actual token flows."""
+        real_flows = defaultdict(dict)
+        
+        # First copy all non-virtual flows
+        for u, flows in flow_dict.items():
+            for v, flow in flows.items():
+                if v != virtual_sink and flow > 0:
+                    real_flows[u][v] = flow
+        
+        # Process flows to virtual sink
+        for u, flows in flow_dict.items():
+            virtual_flow = flows.get(virtual_sink, 0)
+            if virtual_flow > 0:
+                # Get capacity of edge from u back to start_node
+                back_edge_capacity = self.get_edge_capacity(u, start_node)
+                if back_edge_capacity is not None:
+                    # Add the return flow
+                    real_flows[u][start_node] = virtual_flow
+        
+        return dict(real_flows)
+
+    def cleanup_arbitrage_graph(self):
+        """Remove all virtual nodes and edges used for arbitrage analysis."""
+        try:
+            # Make a list of edges to remove before modifying graph
+            virtual_edges = [
+                (u, v) for u, v, data in list(self.g_nx.edges(data=True))
+                if data.get('is_virtual', False)
+            ]
+            self.g_nx.remove_edges_from(virtual_edges)
+            
+            # Make a list of nodes to remove before modifying graph
+            virtual_nodes = [
+                node for node in list(self.g_nx.nodes())
+                if str(node).startswith('virtual_sink_')
+            ]
+            self.g_nx.remove_nodes_from(virtual_nodes)
+            
+            # Restore original edges if needed
+            if hasattr(self, '_temp_edges'):
+                self._restore_edges()
+                
+        except Exception as e:
+            self.logger.error(f"Error cleaning up arbitrage graph: {e}")
+            raise
