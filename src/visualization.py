@@ -77,39 +77,30 @@ class Visualization:
         return pos
 
     def plot_flow_paths(self, graph: BaseGraph, paths: List[Tuple[List[str], List[str], int]], 
-                       simplified_flows: Dict, id_to_address: Dict[str, str], 
-                       filename: str,
-                       source_address: str):  # Add source_address parameter
+                   simplified_flows: Dict, id_to_address: Dict[str, str], 
+                   filename: str,
+                   source_address: str):
         """
         Plot simplified flow paths showing token transformations.
-        
-        Args:
-            graph: Base graph implementation
-            paths: List of (path, tokens, amount) tuples
-            simplified_flows: Dictionary of simplified flows
-            id_to_address: Mapping from node IDs to addresses
-            filename: Output file path
-            source_address: Original source address
         """
         viz_graph = nx.DiGraph()
         
         # Find source node ID by matching the address
-        source_node = None
         address_to_id = {addr.lower(): id_ for id_, addr in id_to_address.items()}
         source_node = address_to_id.get(source_address.lower())
         
         if not source_node:
             raise ValueError(f"Source address {source_address} not found in address mapping")
-            
+                    
         print(f"Identified source node: {source_node} ({id_to_address.get(source_node, 'Unknown')})")
-            
+                    
         # Process simplified flows directly
         for (u, v), token_dict in simplified_flows.items():
             if u not in viz_graph:
                 viz_graph.add_node(u)
             if v not in viz_graph:
                 viz_graph.add_node(v)
-                
+                        
             # Add edge with token information
             for token, amount in token_dict.items():
                 if not viz_graph.has_edge(u, v):
@@ -117,7 +108,131 @@ class Visualization:
                 viz_graph[u][v]['tokens'][token] = amount
                 viz_graph[u][v]['total_flow'] += amount
         
-        # Create layout with source at center
+        # Create hierarchical layout with source at the top
+        pos = self._create_hierarchical_layout(viz_graph, source_node)
+        
+        plt.figure(figsize=(15, 12))
+        
+        # Draw nodes
+        nx.draw_networkx_nodes(
+            viz_graph, pos,
+            node_color=['red' if n == source_node else 'lightblue' for n in viz_graph.nodes()],
+            node_size=[1500 if n == source_node else 1000 for n in viz_graph.nodes()],
+            alpha=0.9
+        )
+        
+        # Draw edges with curvature to minimize overlaps
+        edge_styles = []
+        for u, v in viz_graph.edges():
+            if u == source_node:
+                edge_styles.append(('lightcoral', 'dashed', 'arc3,rad=0.2'))
+            elif v == source_node:
+                edge_styles.append(('lightgreen', 'dashed', 'arc3,rad=0.2'))
+            else:
+                edge_styles.append(('gray', 'solid', 'arc3,rad=0.0'))
+        
+        for (u, v), (color, style, connectionstyle) in zip(viz_graph.edges(), edge_styles):
+            nx.draw_networkx_edges(
+                viz_graph, pos,
+                edgelist=[(u, v)],
+                width=1 + np.log1p(viz_graph[u][v]['total_flow']) * 0.5,
+                edge_color=color,
+                style=style,
+                arrows=True,
+                arrowsize=20,
+                alpha=0.6,
+                connectionstyle=connectionstyle
+            )
+        
+        # Create node labels
+        labels = {}
+        for node in viz_graph.nodes():
+            addr = id_to_address.get(str(node), str(node))
+            if len(addr) > 10:
+                labels[node] = f"{addr[:6]}...{addr[-4:]}"
+            else:
+                labels[node] = addr
+        
+        nx.draw_networkx_labels(
+            viz_graph, pos,
+            labels,
+            font_size=10,
+            font_weight='bold'
+        )
+        
+        # Create edge labels showing token flows
+        edge_labels = {}
+        for u, v, data in viz_graph.edges(data=True):
+            label_lines = []
+            for token, amount in data['tokens'].items():
+                label_lines.append(f"Token {token}")
+                label_lines.append(f"{amount:,} mCRC")
+            edge_labels[(u, v)] = '\n'.join(label_lines)
+        
+        nx.draw_networkx_edge_labels(
+            viz_graph, pos,
+            edge_labels,
+            font_size=8,
+            rotate=False
+        )
+        
+        # Add title with proper source node
+        source_addr = id_to_address.get(str(source_node), str(source_node))
+        if len(source_addr) > 10:
+            source_addr = f"{source_addr[:6]}...{source_addr[-4:]}"
+        plt.title(f"Arbitrage Flow Paths\nSource: {source_addr}", fontsize=16, pad=20)
+        
+        # Add legend
+        legend_elements = [
+            plt.Line2D([0], [0], color='lightcoral', linestyle='--', lw=2, label='Outgoing Flows (Start token)'),
+            plt.Line2D([0], [0], color='lightgreen', linestyle='--', lw=2, label='Incoming Flows (End token)'),
+            plt.Line2D([0], [0], color='gray', linestyle='-', lw=2, label='Intermediate Flows'),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='red', 
+                    markersize=15, label='Source Account'),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='lightblue', 
+                    markersize=15, label='Intermediate Account')
+        ]
+        plt.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.15, 1))
+        
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.close()
+
+
+    def plot_flow_paths2(self, graph: BaseGraph, paths: List[Tuple[List[str], List[str], int]], 
+                   simplified_flows: Dict, id_to_address: Dict[str, str], 
+                   filename: str,
+                   source_address: str):
+        """
+        Plot simplified flow paths showing token transformations.
+        """
+        viz_graph = nx.DiGraph()
+        
+        # Find source node ID by matching the address
+        address_to_id = {addr.lower(): id_ for id_, addr in id_to_address.items()}
+        source_node = address_to_id.get(source_address.lower())
+        
+        if not source_node:
+            raise ValueError(f"Source address {source_address} not found in address mapping")
+                    
+        print(f"Identified source node: {source_node} ({id_to_address.get(source_node, 'Unknown')})")
+                    
+        # Process simplified flows directly
+        for (u, v), token_dict in simplified_flows.items():
+            if u not in viz_graph:
+                viz_graph.add_node(u)
+            if v not in viz_graph:
+                viz_graph.add_node(v)
+                        
+            # Add edge with token information
+            for token, amount in token_dict.items():
+                if not viz_graph.has_edge(u, v):
+                    viz_graph.add_edge(u, v, tokens={}, total_flow=0)
+                viz_graph[u][v]['tokens'][token] = amount
+                viz_graph[u][v]['total_flow'] += amount
+                
+        # Create layout with source above the circle
         pos = self._create_circular_layout(viz_graph, source_node)
         
         plt.figure(figsize=(15, 12))
@@ -143,7 +258,7 @@ class Visualization:
             else:
                 intermediate_edges.append((u, v))
         
-        # Draw outgoing edges with negative curvature
+        # Draw outgoing edges with curvature
         if outgoing_edges:
             nx.draw_networkx_edges(
                 viz_graph, pos,
@@ -154,10 +269,10 @@ class Visualization:
                 arrows=True,
                 arrowsize=20,
                 alpha=0.6,
-                connectionstyle='arc3, rad=0.2'  # Added curvature
+                connectionstyle='arc3, rad=-0.3'  # Adjust curvature as needed
             )
-
-        # Draw incoming edges with positive curvature
+        
+        # Draw incoming edges with curvature
         if incoming_edges:
             nx.draw_networkx_edges(
                 viz_graph, pos,
@@ -168,9 +283,9 @@ class Visualization:
                 arrows=True,
                 arrowsize=20,
                 alpha=0.6,
-                connectionstyle='arc3, rad=0.2'  # Added curvature
+                connectionstyle='arc3, rad=0.3'  # Adjust curvature as needed
             )
-
+        
         # Draw intermediate edges without curvature
         if intermediate_edges:
             nx.draw_networkx_edges(
@@ -229,9 +344,9 @@ class Visualization:
             plt.Line2D([0], [0], color='lightgreen', linestyle='--', lw=2, label='Incoming Flows (End token)'),
             plt.Line2D([0], [0], color='gray', linestyle='-', lw=2, label='Intermediate Flows'),
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='red', 
-                      markersize=15, label='Source Account'),
+                    markersize=15, label='Source Account'),
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='lightblue', 
-                      markersize=15, label='Intermediate Account')
+                    markersize=15, label='Intermediate Account')
         ]
         plt.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.15, 1))
         
@@ -240,26 +355,29 @@ class Visualization:
         plt.savefig(filename, dpi=300, bbox_inches='tight')
         plt.close()
 
+
     def _create_circular_layout(self, G: nx.DiGraph, source_node: str) -> Dict[str, Tuple[float, float]]:
-        """Create a circular layout with source node at center."""
+        """Create a circular layout with the source node at the top."""
         pos = {}
         nodes = list(G.nodes())
         
-        # Place source node at center
-        pos[source_node] = (0, 0)
-        
         # Remove source node from list for circular arrangement
         remaining_nodes = [n for n in nodes if n != source_node]
+        num_nodes = len(remaining_nodes)
         
         # Arrange other nodes in a circle
+        r = 3  # radius of circle
         for i, node in enumerate(remaining_nodes):
-            theta = 2 * np.pi * i / len(remaining_nodes)
-            r = 3  # radius of circle
+            theta = 2 * np.pi * i / num_nodes  # angle
             x = r * np.cos(theta)
             y = r * np.sin(theta)
             pos[node] = (x, y)
         
+        # Place source node above the circle
+        pos[source_node] = (0, r + 1)
+        
         return pos
+
     
     def plot_full_flow_paths(self, graph: BaseGraph, edge_flows: Dict,
                            id_to_address: Dict[str, str], filename: str):
@@ -386,6 +504,35 @@ class Visualization:
         plt.tight_layout()
         plt.savefig(filename, dpi=300, bbox_inches='tight')
         plt.close()
+
+    def _create_hierarchical_layout(self, G: nx.DiGraph, source_node: str) -> Dict[str, Tuple[float, float]]:
+        """Create a hierarchical layout with the source node at the top."""
+        # Compute the shortest paths from the source node to all other nodes
+        lengths = nx.single_source_shortest_path_length(G, source_node)
+        
+        # Group nodes by their distance from the source node
+        nodes_by_level = defaultdict(list)
+        for node, level in lengths.items():
+            nodes_by_level[level].append(node)
+        
+        # Sort the levels to ensure consistent ordering
+        sorted_levels = sorted(nodes_by_level.items())
+        
+        pos = {}
+        y_gap = 2.0  # Vertical gap between layers
+        x_gap = 2.0  # Horizontal gap between nodes in the same layer
+        
+        # Position nodes level by level
+        for level, nodes in sorted_levels:
+            y = -level * y_gap  # Negative y to place nodes below the source
+            num_nodes = len(nodes)
+            x_offset = -((num_nodes - 1) * x_gap) / 2  # Center the nodes
+            for i, node in enumerate(sorted(nodes)):
+                x = x_offset + i * x_gap
+                pos[node] = (x, y)
+        
+        return pos
+
 
     def _hierarchical_layout(self, G: nx.DiGraph, source: str, sink: str,
                            horizontal_spacing: float = 5.0,
