@@ -17,6 +17,7 @@ class NetworkFlowAnalysis:
         self.graph = graph
         self.logger = logging.getLogger(__name__)
 
+
     def analyze_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None, 
                     requested_flow: Optional[str] = None):
         """
@@ -50,6 +51,13 @@ class NetworkFlowAnalysis:
             flow_func, 
             requested_flow
         )
+
+        print(f"Raw flow computation returned: {flow_value}")
+    
+        # Before decomposition
+        print(f"Flow into sink nodes:")
+        sink_flows = sum(flows.get(sink, 0) for flows in flow_dict.values())
+        print(f"Total sink flow from dictionary: {sink_flows}")
 
         # Decompose into paths
         paths, edge_flows = self.graph.flow_decomposition(

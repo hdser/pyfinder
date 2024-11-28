@@ -100,35 +100,61 @@ class GraphToolGraph(BaseGraph):
         self.g_gt.set_edge_filter(edge_filter)
 
         try:
+            # First, let's check source capacity
+            print("\nSource capacity check:")
+            source_capacity = 0
+            for e in s.out_edges():
+                source_capacity += int(capacity_copy[e])
+            print(f"Total source capacity: {source_capacity}")
+            
             # Compute flow
-            start = time.time()
             res = flow_func(self.g_gt, s, t, capacity_copy)
-            print(f"Solver Time: {time.time() - start}")
+        
+            # Check flows out of source
+            print("\nSource flow check:")
+            source_outflow = 0
+            for e in s.out_edges():
+                flow = int(capacity_copy[e]) - int(res[e])
+                source_outflow += flow
+                print(f"Edge {self.vertex_id[s]} -> {self.vertex_id[e.target()]}: {flow}")
+            print(f"Total flow out of source: {source_outflow}")
+            
+            # Check flows into sink
+            print("\nSink flow check:")
+            sink_inflow = 0
+            for e in t.in_edges():
+                flow = int(capacity_copy[e]) - int(res[e])
+                sink_inflow += flow
+                print(f"Edge {self.vertex_id[e.source()]} -> {self.vertex_id[t]}: {flow}")
+            print(f"Total flow into sink: {sink_inflow}")
 
-            # Let's inspect some values
-            print("Sample edge flows before conversion:")
-            for e in t.in_edges()[:3]:  # Look at first 3 edges into sink
-                print(f"Edge {self.vertex_id[e.source()]} -> {self.vertex_id[e.target()]}:")
-                print(f"  Original capacity: {int(capacity_copy[e])}")
-                print(f"  Residual capacity: {int(res[e])}")
-                print(f"  Flow should be: {int(capacity_copy[e]) - int(res[e])}")
+            # Let's inspect what we have
+            print("\nSample flows into sink before conversion:")
+            sink_flow_before = 0
+            for e in t.in_edges():
+                orig_cap = int(capacity_copy[e])
+                residual = int(res[e])
+                actual_flow = orig_cap - residual
+                sink_flow_before += actual_flow
+                print(f"Edge {self.vertex_id[e.source()]} -> sink:")
+                print(f"  Original capacity: {orig_cap}")
+                print(f"  Residual capacity: {residual}")
+                print(f"  Actual flow: {actual_flow}")
 
-            # Get actual flows
+            # Convert residual capacities to flows
             res.a = capacity_copy.a - res.a
 
-            print("\nSample edge flows after conversion:")
-            for e in t.in_edges()[:3]:
-                print(f"Edge {self.vertex_id[e.source()]} -> {self.vertex_id[e.target()]}:")
-                print(f"  Computed flow: {int(res[e])}")
+            print("\nSink flows after conversion:")
+            sink_flow_after = 0
+            for e in t.in_edges():
+                flow = int(res[e])
+                sink_flow_after += flow
+                print(f"Edge {self.vertex_id[e.source()]} -> sink: {flow}")
 
-            # Calculate direct flow into sink
-            direct_sink_flow = sum(
-                direct_flow_dict.get(u, {}).get(self.vertex_id[t], 0)
-                for u in direct_flow_dict
-            )
-            print(f"\nDirect flow into sink: {direct_sink_flow}")
+            print(f"\nTotal sink flow before: {sink_flow_before}")
+            print(f"Total sink flow after: {sink_flow_after}")
 
-            # Build flow dictionary
+            # Build flow dictionary and proceed as before
             total_flow, flow_dict = self._build_flow_dict(
                 res,
                 t,
@@ -136,15 +162,8 @@ class GraphToolGraph(BaseGraph):
                 direct_flow_dict
             )
 
-            # Calculate total flow into sink for verification
-            sink_flow = sum(
-                flow_dict.get(u, {}).get(self.vertex_id[t], 0)
-                for u in flow_dict
-            )
-            print(f"Total sink flow from dictionary: {sink_flow}")
-
-            print(f"Build flow dict returned: {total_flow}, {direct_flow}")
-            return total_flow, flow_dict 
+            print(total_flow, direct_flow)
+            return total_flow, flow_dict
 
         finally:
             self.g_gt.clear_filters()
