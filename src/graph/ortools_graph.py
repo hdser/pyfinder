@@ -254,17 +254,31 @@ class ORToolsGraph(BaseGraph):
         return edge_data['capacity'] if edge_data else None
 
     def get_node_outflow_capacity(self, source_id: str) -> int:
+        """Compute total capacity of outgoing edges from source_id to intermediate nodes."""
         total_capacity = 0
+        # Create a set of edges already counted to avoid duplicates
+        counted_edges = set()
+        
+        # Use cached outgoing edges
         for v, capacity, _ in self.outgoing_edges[source_id]:
-            if '_' in v:
+            if '_' in v and (source_id, v) not in counted_edges:
                 total_capacity += capacity
+                counted_edges.add((source_id, v))
+        
         return total_capacity
 
     def get_node_inflow_capacity(self, sink_id: str) -> int:
+        """Compute total capacity of incoming edges to sink_id from intermediate nodes."""
         total_capacity = 0
+        # Create a set of edges already counted to avoid duplicates
+        counted_edges = set()
+        
+        # Use cached incoming edges
         for u, capacity, _ in self.incoming_edges[sink_id]:
-            if '_' in u:
+            if '_' in u and (u, sink_id) not in counted_edges:
                 total_capacity += capacity
+                counted_edges.add((u, sink_id))
+        
         return total_capacity
     
 

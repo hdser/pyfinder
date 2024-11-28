@@ -29,54 +29,44 @@ class GraphToolGraph(BaseGraph):
         self.vertex_map = self.id_to_vertex.copy()
 
     def _create_graph(self, edges: List[Tuple[str, str]], capacities: List[int], 
-                     tokens: List[str]) -> Graph:
+                 tokens: List[str]) -> Graph:
         """Create a graph-tool graph with properties."""
-        # Extract unique vertices
-        unique_vertices = set()
-        for u_id, v_id in edges:
-            unique_vertices.add(u_id)
-            unique_vertices.add(v_id)
-        vertex_ids = sorted(unique_vertices)
-
-        # Create mapping from vertex ID to index
-        vertex_id_to_idx = {vertex_id: idx for idx, vertex_id in enumerate(vertex_ids)}
-
-        # Initialize graph and add vertices
+        # Create the base graph
         g = Graph(directed=True)
-        g.add_vertex(len(vertex_ids))
-
-        # Create and assign vertex ID property
+        
+        # Create properties
         v_prop = g.new_vertex_property("string")
-        for idx, vertex_id in enumerate(vertex_ids):
-            v_prop[g.vertex(idx)] = vertex_id
-        g.vertex_properties["id"] = v_prop
-
-        # Prepare edge list with properties
-        edge_list = [
-            (vertex_id_to_idx[u_id],
-             vertex_id_to_idx[v_id],
-             capacity,
-             token)
-            for (u_id, v_id), capacity, token in zip(edges, capacities, tokens)
-        ]
-
-        # Create and add edge properties
         e_prop_capacity = g.new_edge_property("int64_t")
         e_prop_token = g.new_edge_property("string")
-        g.add_edge_list(
-            edge_list,
-            eprops=[e_prop_capacity, e_prop_token],
-            hashed=False
-        )
-
-        # Assign edge properties
+        
+        # Add properties to graph
+        g.vertex_properties["id"] = v_prop
         g.edge_properties["capacity"] = e_prop_capacity
         g.edge_properties["token"] = e_prop_token
-
+        
+        # Create vertex mapping first
+        vertex_map = {}
+        for u, v in edges:
+            if u not in vertex_map:
+                vertex = g.add_vertex()
+                vertex_map[u] = vertex
+                v_prop[vertex] = u
+            if v not in vertex_map:
+                vertex = g.add_vertex()
+                vertex_map[v] = vertex
+                v_prop[vertex] = v
+        
+        # Add edges with properties
+        for (u, v), capacity, token in zip(edges, capacities, tokens):
+            e = g.add_edge(vertex_map[u], vertex_map[v])
+            e_prop_capacity[e] = int(capacity)  # Ensure integer capacity
+            e_prop_token[e] = str(token)  # Ensure string token
+        
         return g
 
+    
     def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None,
-                requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
+                    requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
         """Compute maximum flow between source and sink nodes."""
         s = self.get_vertex(source)
         t = self.get_vertex(sink)
@@ -93,47 +83,71 @@ class GraphToolGraph(BaseGraph):
         capacity_copy = self.g_gt.new_edge_property("int64_t")
         capacity_copy.a = self.capacity.a.copy()
 
-        try:
-            # If no flow function provided, use push-relabel by default
-            if flow_func is None:
-                from graph_tool.flow import boykov_kolmogorov_max_flow
-                flow_func = boykov_kolmogorov_max_flow
+        # Process direct paths
+        direct_flow, direct_flow_dict = self._process_direct_paths(source, sink, s, t, capacity_copy, requested_flow)
 
+        if requested_flow and direct_flow >= int(requested_flow):
+            print(f"Satisfied requested flow of {requested_flow} with direct edges.")
+            self._flow_dict = direct_flow_dict  # Cache the flow dictionary
+            return direct_flow, direct_flow_dict
+
+        remaining_flow = None if requested_flow is None else int(requested_flow) - direct_flow
+
+        # Filter zero capacity edges
+        edge_filter = self.g_gt.new_edge_property("bool")
+        for e in self.g_gt.edges():
+            edge_filter[e] = (capacity_copy[e] > 0)
+        self.g_gt.set_edge_filter(edge_filter)
+
+        try:
             # Compute flow
             start = time.time()
             res = flow_func(self.g_gt, s, t, capacity_copy)
             print(f"Solver Time: {time.time() - start}")
 
-            # Compute actual flows
-            flow = capacity_copy.copy()
-            flow.a = capacity_copy.a - res.a
+            # Let's inspect some values
+            print("Sample edge flows before conversion:")
+            for e in t.in_edges()[:3]:  # Look at first 3 edges into sink
+                print(f"Edge {self.vertex_id[e.source()]} -> {self.vertex_id[e.target()]}:")
+                print(f"  Original capacity: {int(capacity_copy[e])}")
+                print(f"  Residual capacity: {int(res[e])}")
+                print(f"  Flow should be: {int(capacity_copy[e]) - int(res[e])}")
+
+            # Get actual flows
+            res.a = capacity_copy.a - res.a
+
+            print("\nSample edge flows after conversion:")
+            for e in t.in_edges()[:3]:
+                print(f"Edge {self.vertex_id[e.source()]} -> {self.vertex_id[e.target()]}:")
+                print(f"  Computed flow: {int(res[e])}")
+
+            # Calculate direct flow into sink
+            direct_sink_flow = sum(
+                direct_flow_dict.get(u, {}).get(self.vertex_id[t], 0)
+                for u in direct_flow_dict
+            )
+            print(f"\nDirect flow into sink: {direct_sink_flow}")
 
             # Build flow dictionary
-            flow_dict = {}
-            for e in self.g_gt.edges():
-                f = int(flow[e])
-                if f > 0:
-                    u = self.vertex_id[e.source()]
-                    v = self.vertex_id[e.target()]
-                    if u not in flow_dict:
-                        flow_dict[u] = {}
-                    flow_dict[u][v] = f
+            total_flow, flow_dict = self._build_flow_dict(
+                res,
+                t,
+                remaining_flow,
+                direct_flow_dict
+            )
 
-            # Cache the flow dictionary
-            self._flow_dict = flow_dict
+            # Calculate total flow into sink for verification
+            sink_flow = sum(
+                flow_dict.get(u, {}).get(self.vertex_id[t], 0)
+                for u in flow_dict
+            )
+            print(f"Total sink flow from dictionary: {sink_flow}")
 
-            # Calculate total flow to sink
-            total_flow = sum(flows.get(sink, 0) for flows in flow_dict.values())
+            print(f"Build flow dict returned: {total_flow}, {direct_flow}")
+            return total_flow, flow_dict 
 
-            # Apply flow cutoff if requested
-            if requested_flow is not None:
-                total_flow = min(total_flow, int(requested_flow))
-
-            return total_flow, flow_dict
-
-        except Exception as e:
-            print(f"Error in flow computation: {str(e)}")
-            raise
+        finally:
+            self.g_gt.clear_filters()
 
     def compute_flow2(self, source: str, sink: str, flow_func: Optional[Callable] = None,
                     requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
@@ -182,6 +196,8 @@ class GraphToolGraph(BaseGraph):
             # Build flow dictionary
             total_flow, flow_dict = self._build_flow_dict(flow, t, remaining_flow, direct_flow_dict)
 
+            print(total_flow,direct_flow)
+
             # Cache the flow dictionary
             self._flow_dict = flow_dict
             return total_flow + direct_flow, flow_dict
@@ -189,7 +205,63 @@ class GraphToolGraph(BaseGraph):
         finally:
             self.g_gt.clear_filters()
 
+
     def _process_direct_paths(self, source: str, sink: str, s, t, capacity_copy, requested_flow: Optional[str]) -> Tuple[int, Dict[str, Dict[str, int]]]:
+        """Process direct paths through intermediate nodes."""
+        direct_flow = 0
+        direct_flow_dict = {}
+        direct_edges = []
+        
+        # Store original capacities before modification
+        original_capacities = {}
+        
+        for e in s.out_edges():
+            v = e.target()
+            if '_' in self.vertex_id[v]:
+                for e2 in v.out_edges():
+                    if e2.target() == t:
+                        direct_edges.append((
+                            self.vertex_id[v],
+                            min(int(capacity_copy[e]), int(capacity_copy[e2])),
+                            e,
+                            e2
+                        ))
+                        # Store original capacities
+                        original_capacities[e] = int(capacity_copy[e])
+                        original_capacities[e2] = int(capacity_copy[e2])
+
+        try:
+            if direct_edges:
+                direct_edges.sort(key=lambda x: x[1], reverse=True)
+                req_flow_int = int(requested_flow) if requested_flow is not None else None
+                remaining_flow = req_flow_int if req_flow_int is not None else float('inf')
+
+                for intermediate_node, capacity, e1, e2 in direct_edges:
+                    if req_flow_int is not None and remaining_flow <= 0:
+                        break
+
+                    flow = min(capacity, remaining_flow) if req_flow_int is not None else capacity
+
+                    if flow > 0:
+                        direct_flow_dict.setdefault(source, {})[intermediate_node] = flow
+                        direct_flow_dict.setdefault(intermediate_node, {})[sink] = flow
+                        direct_flow += flow
+
+                        capacity_copy[e1] -= flow
+                        capacity_copy[e2] -= flow
+
+                        if req_flow_int is not None:
+                            remaining_flow -= flow
+
+            return direct_flow, direct_flow_dict
+            
+        finally:
+            # Restore any modified capacities if algorithm fails
+            for e, cap in original_capacities.items():
+                if int(capacity_copy[e]) < 0:  # Check for negative capacities
+                    capacity_copy[e] = cap
+
+    def _process_direct_paths2(self, source: str, sink: str, s, t, capacity_copy, requested_flow: Optional[str]) -> Tuple[int, Dict[str, Dict[str, int]]]:
         """Process direct paths through intermediate nodes."""
         direct_flow = 0
         direct_flow_dict = {}
@@ -230,8 +302,98 @@ class GraphToolGraph(BaseGraph):
                         remaining_flow -= flow
 
         return direct_flow, direct_flow_dict
-
+    
     def _build_flow_dict(self, flow, t, remaining_flow: Optional[int],
+                    direct_flow_dict: Dict[str, Dict[str, int]]):
+        total_flow = 0
+        flow_dict = {}
+
+        # Print a test edge first
+        test_edge = None
+        for e in t.in_edges():
+            test_edge = e
+            print(f"\nTest edge {self.vertex_id[e.source()]} -> {self.vertex_id[e.target()]}:")
+            print(f"  Flow value: {int(flow[e])}")
+            break
+
+        # First process all edges
+        for e in self.g_gt.edges():
+            f = int(flow[e])
+            if f > 0:
+                u = self.vertex_id[e.source()]
+                v = self.vertex_id[e.target()]
+                if u not in flow_dict:
+                    flow_dict[u] = {}
+                flow_dict[u][v] = f
+                if e.target() == t:
+                    total_flow += f  # All flows count toward total
+
+        if remaining_flow is not None:
+            total_flow = min(total_flow, remaining_flow)
+
+        # No need to add direct flows to total_flow since they're already in the flow values
+        if direct_flow_dict:
+            for u, flows in direct_flow_dict.items():
+                if u not in flow_dict:
+                    flow_dict[u] = flows.copy()
+                else:
+                    for v, f in flows.items():
+                        flow_dict[u][v] = flow_dict[u].get(v, 0) + f
+
+        return total_flow, flow_dict
+
+
+    def _build_flow_dict2(self, flow, t, remaining_flow: Optional[int],
+                     direct_flow_dict: Dict[str, Dict[str, int]]) -> Tuple[int, Dict[str, Dict[str, int]]]:
+        """Build flow dictionary from computed flow."""
+        total_flow = 0
+        flow_dict = {}
+        
+        # First pass: collect all flows
+        for e in self.g_gt.edges():
+            f = int(flow[e])
+            if f > 0:
+                u = self.vertex_id[e.source()]
+                v = self.vertex_id[e.target()]
+                
+                # Initialize dictionary for source node if needed
+                if u not in flow_dict:
+                    flow_dict[u] = {}
+                
+                # Add or update flow value
+                flow_dict[u][v] = flow_dict[u].get(v, 0) + f
+                
+                # Track total flow into sink
+                if e.target() == t:
+                    total_flow += f
+
+        # Verify flow conservation at intermediate nodes
+        for node in list(flow_dict.keys()):
+            if '_' in node:  # This is an intermediate node
+                in_flow = sum(flows.get(node, 0) for flows in flow_dict.values())
+                out_flow = sum(flow_dict.get(node, {}).values())
+                
+                if abs(in_flow - out_flow) > 1e-10:  # Allow small numerical errors
+                    self.logger.warning(
+                        f"Flow conservation violated at {node}: in={in_flow}, out={out_flow}"
+                    )
+
+        # Apply remaining flow limit if specified
+        if remaining_flow is not None:
+            total_flow = min(total_flow, remaining_flow)
+
+        # Combine with direct flows
+        if direct_flow_dict:
+            for u, flows in direct_flow_dict.items():
+                if u not in flow_dict:
+                    flow_dict[u] = flows.copy()
+                else:
+                    for v, f in flows.items():
+                        flow_dict[u][v] = flow_dict[u].get(v, 0) + f
+
+        return total_flow, flow_dict
+
+    def _build_flow_dict3(self, flow, t, remaining_flow: Optional[int],
                         direct_flow_dict: Dict[str, Dict[str, int]]) -> Tuple[int, Dict[str, Dict[str, int]]]:
         """Build flow dictionary from computed flow."""
         total_flow = 0
@@ -345,30 +507,84 @@ class GraphToolGraph(BaseGraph):
         return None
 
     def get_node_outflow_capacity(self, source_id: str) -> int:
-        total_capacity = 0
+        """Compute total outflow capacity from source to intermediate nodes."""
         source_vertex = self.get_vertex(source_id)
         if source_vertex is None:
-            return total_capacity
-        for edge in source_vertex.out_edges():
-            target_vertex = edge.target()
-            target_id = self.vertex_id[target_vertex]
-            if '_' in target_id:
-                capacity = int(self.capacity[edge])
-                total_capacity += capacity
-        return total_capacity
+            return 0
+            
+        # Map to store max capacity for each holder-token combination
+        holder_token_capacities = {}
+        
+        # Iterate through all outgoing edges
+        for e in source_vertex.out_edges():
+            target = self.vertex_id[e.target()]
+            if '_' in target:
+                # Split intermediate node ID into holder and token
+                holder, token = target.split('_')
+                capacity = int(self.capacity[e])
+                
+                # Keep only the maximum capacity for each holder-token pair
+                key = (holder, token)
+                if key not in holder_token_capacities or capacity > holder_token_capacities[key]:
+                    holder_token_capacities[key] = capacity
+        
+        # Sum all maximum capacities
+        return sum(holder_token_capacities.values())
 
     def get_node_inflow_capacity(self, sink_id: str) -> int:
-        total_capacity = 0
+        """Compute total inflow capacity to sink from intermediate nodes."""
         sink_vertex = self.get_vertex(sink_id)
         if sink_vertex is None:
-            return total_capacity
-        for edge in sink_vertex.in_edges():
-            source_vertex = edge.source()
-            source_id = self.vertex_id[source_vertex]
-            if '_' in source_id:
-                capacity = int(self.capacity[edge])
-                total_capacity += capacity
-        return total_capacity
+            return 0
+            
+        # Map to store max capacity for each holder-token combination
+        holder_token_capacities = {}
+        
+        # Iterate through all incoming edges
+        for e in sink_vertex.in_edges():
+            source = self.vertex_id[e.source()]
+            if '_' in source:
+                # Split intermediate node ID into holder and token
+                holder, token = source.split('_')
+                capacity = int(self.capacity[e])
+                
+                # Keep only the maximum capacity for each holder-token pair
+                key = (holder, token)
+                if key not in holder_token_capacities or capacity > holder_token_capacities[key]:
+                    holder_token_capacities[key] = capacity
+        
+        # Sum all maximum capacities
+        return sum(holder_token_capacities.values())
+
+    def _debug_capacities(self, vertex_id: str, is_source: bool = True):
+        """Debug helper to print detailed capacity information."""
+        vertex = self.get_vertex(vertex_id)
+        if vertex is None:
+            print(f"Vertex {vertex_id} not found")
+            return
+            
+        edges = vertex.out_edges() if is_source else vertex.in_edges()
+        direction = "outgoing" if is_source else "incoming"
+        print(f"\nDebug {direction} edges for vertex {vertex_id}:")
+        
+        holder_token_capacities = {}
+        for e in edges:
+            node = self.vertex_id[e.target() if is_source else e.source()]
+            if '_' in node:
+                holder, token = node.split('_')
+                capacity = int(self.capacity[e])
+                print(f"Edge to {node}: capacity = {capacity}")
+                
+                key = (holder, token)
+                if key not in holder_token_capacities or capacity > holder_token_capacities[key]:
+                    holder_token_capacities[key] = capacity
+        
+        print("\nHolder-Token Maximums:")
+        for (holder, token), capacity in holder_token_capacities.items():
+            print(f"Holder: {holder}, Token: {token}, Max Capacity: {capacity}")
+        
+        total = sum(holder_token_capacities.values())
+        print(f"\nTotal Capacity: {total}")
 
     def in_degree(self, vertex_id: str) -> int:
         v = self.id_to_vertex.get(vertex_id)

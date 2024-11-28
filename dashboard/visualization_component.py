@@ -212,8 +212,8 @@ class VisualizationComponent(BaseComponent):
         )
 
     def _update_path_stats(self, source: int, sink: int, flow_value: int, simplified_paths: list, 
-                          simplified_edge_flows: dict, original_edge_flows: dict, 
-                          computation_time: float, algorithm: str, requested_flow: Optional[str] = None):
+                      simplified_edge_flows: dict, original_edge_flows: dict, 
+                      computation_time: float, algorithm: str, requested_flow: Optional[str] = None):
         """Update the path analysis statistics."""
         try:
             # Calculate metrics
@@ -222,22 +222,31 @@ class VisualizationComponent(BaseComponent):
             source_outflow = self.graph_manager.graph.get_node_outflow_capacity(source_id)
             sink_inflow = self.graph_manager.graph.get_node_inflow_capacity(sink_id)
             theoretical_max = min(source_outflow, sink_inflow)
+
+            #self.graph_manager.graph._debug_capacities(source_id, is_source=True) 
+            #self.graph_manager.graph._debug_capacities(sink_id, is_source=True) 
             
-            # Calculate flow gap
+            # Calculate actual flow by summing flows only at sink edges
+            actual_flow = 0
+            for (u, v), flows in simplified_edge_flows.items():
+                if v == sink_id:  # Only count flows that reach the sink
+                    actual_flow += sum(flows.values())
+            
+            # Calculate flow gap using actual flow
             if requested_flow is not None and requested_flow.strip():
                 target_flow = int(requested_flow)
-                flow_gap = target_flow - flow_value
+                flow_gap = target_flow - actual_flow
                 flow_gap_percentage = (flow_gap / target_flow * 100) if target_flow > 0 else 0
                 comparison_text = "Requested Flow"
             else:
                 target_flow = theoretical_max
-                flow_gap = theoretical_max - flow_value
+                flow_gap = theoretical_max - actual_flow
                 flow_gap_percentage = (flow_gap / theoretical_max * 100) if theoretical_max > 0 else 0
                 comparison_text = "Theoretical Maximum"
 
-            # Format flow information
+            # Format flow information using actual flow
             flow_info = {
-                "Achieved Flow": f"{flow_value:,} mCRC",
+                "Achieved Flow": f"{actual_flow:,} mCRC",
                 comparison_text: f"{target_flow:,} mCRC",
                 "Flow Gap": f"{flow_gap:,} mCRC ({flow_gap_percentage:.2f}%)",
                 "Flow Type": "Maximum Flow" if requested_flow is None else "Requested Flow",
@@ -254,9 +263,9 @@ class VisualizationComponent(BaseComponent):
                 "Total Transfers": f"{sum(len(flows) for flows in simplified_edge_flows.values()):,}",
                 "Original Edges": f"{len(original_edge_flows):,}",
                 "Simplified Groups": f"{len(simplified_edge_flows):,}",
-                "Average Flow per Path": f"{flow_value / len(simplified_paths):,.2f} mCRC" if simplified_paths else "0",
-                "Min Flow Path": f"{min(path_flows):,.2f} mCRC",
-                "Max Flow Path": f"{max(path_flows):,.2f} mCRC"
+                "Average Flow per Path": f"{actual_flow / len(simplified_paths):,.2f} mCRC" if simplified_paths else "0",
+                "Min Flow Path": f"{min(path_flows):,.2f} mCRC" if path_flows else "0",
+                "Max Flow Path": f"{max(path_flows):,.2f} mCRC" if path_flows else "0"
             }
 
             # Update displays using the existing _format_stats_box method
