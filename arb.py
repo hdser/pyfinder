@@ -207,8 +207,8 @@ def main():
         args.implementation
     )
     
-    # Print network statistics - no need to pass implementation
-    analyzer.print_network_stats()
+    # Print network statistics
+    #analyzer.print_network_stats()
     
     # Run arbitrage analysis if addresses provided
     if all([args.source, args.start_token, args.end_token]):

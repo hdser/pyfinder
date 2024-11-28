@@ -164,17 +164,57 @@ class Visualization:
         edge_labels = {}
         for u, v, data in viz_graph.edges(data=True):
             label_lines = []
+            token_totals = defaultdict(int)
+            # Aggregate flows by token
             for token, amount in data['tokens'].items():
-                label_lines.append(f"Token {token}")
-                label_lines.append(f"{amount:,} mCRC")
+                token_totals[token] += amount
+            
+            # Create label for each token
+            for token, total in token_totals.items():
+                token_addr = id_to_address.get(str(token), str(token))
+                if len(token_addr) > 10:
+                    token_label = f"{token_addr[:6]}...{token_addr[-4:]}"
+                else:
+                    token_label = token_addr
+                label_lines.append(f"{token_label}\n{total:,} mCRC")
             edge_labels[(u, v)] = '\n'.join(label_lines)
         
-        nx.draw_networkx_edge_labels(
-            viz_graph, pos,
-            edge_labels,
-            font_size=8,
-            rotate=False
-        )
+        # Draw edge labels closer to edges with better positioning
+        for (u, v), label in edge_labels.items():
+            # Get edge midpoint
+            x = (pos[u][0] + pos[v][0]) / 2
+            y = (pos[u][1] + pos[v][1]) / 2
+            
+            # Calculate label offset and angle
+            dx = pos[v][0] - pos[u][0]
+            dy = pos[v][1] - pos[u][1]
+            angle = np.arctan2(dy, dx)
+            angle_deg = np.degrees(angle)
+            
+            # Adjust angle for readability
+            if -90 <= angle_deg <= 90:
+                # Text reads left-to-right
+                rotation = angle_deg
+                ha = 'left'
+            else:
+                # Flip text for steeper angles
+                rotation = angle_deg - 180
+                ha = 'right'
+            
+            # Offset perpendicular to edge
+            offset = 0.15  # Increased offset for better visibility
+            label_x = x + offset * np.sin(angle)
+            label_y = y - offset * np.cos(angle)
+            
+            plt.annotate(
+                label,
+                xy=(x, y),
+                xytext=(label_x, label_y),
+                fontsize=8,
+                rotation=rotation,
+                ha=ha,
+                va='center'
+            )
         
         # Add title with proper source node
         source_addr = id_to_address.get(str(source_node), str(source_node))

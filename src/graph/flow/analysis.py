@@ -126,37 +126,36 @@ class NetworkFlowAnalysis:
                 return 0, [], {}, {}
                 
             self.logger.info(f"Found max flow: {flow_value}")
-            
-            # Find flows to virtual sink
-            sink_flows = []
+
+            self.logger.info("flows")
             for end_pos, flows in flow_dict.items():
-                if virtual_sink in flows and flows[virtual_sink] > 0:
-                    sink_flows.append((end_pos, flows[virtual_sink]))
+                if flows != {}:
+                    self.logger.info(f"{end_pos}: {flows}")
+            
+            # Find all possible paths to virtual sink
+            all_paths = self._find_all_flow_paths(flow_dict, source, virtual_sink)
             
             paths = []
             edge_flows = {}
             
-            for end_pos, final_flow in sink_flows:
-                # No need to add start_pos as we start from source node
-                path = self._find_flow_path(flow_dict, source, None, end_pos, final_flow)
+            # Process each path
+            for path, flow_value in all_paths:
+                # Complete cycle back to source
+                real_path = path[:-1] + [source]  # Replace virtual_sink with source
                 
-                if path:
-                    # Complete cycle back to source
-                    path.append(source)
-                    
-                    # Extract tokens from node IDs
-                    tokens = []
-                    for node in path[1:-1]:  # Skip first and last (source nodes)
-                        if '_' in node:
-                            _, token = node.split('_')
-                            tokens.append(token)
-                    
-                    # Record flows
-                    for i in range(len(path)-1):
-                        edge = (path[i], path[i+1])
-                        edge_flows[edge] = edge_flows.get(edge, 0) + final_flow
-                    
-                    paths.append((path, tokens, final_flow))
+                # Extract tokens from node IDs
+                tokens = []
+                for node in real_path[1:-1]:  # Skip first and last (source nodes)
+                    if '_' in node:
+                        _, token = node.split('_')
+                        tokens.append(token)
+                
+                # Record flows
+                for i in range(len(real_path)-1):
+                    edge = (real_path[i], real_path[i+1])
+                    edge_flows[edge] = edge_flows.get(edge, 0) + flow_value
+                
+                paths.append((real_path, tokens, flow_value))
             
             if not paths:
                 return flow_value, [], {}, {}
@@ -169,8 +168,124 @@ class NetworkFlowAnalysis:
             
         finally:
             self.graph.cleanup_arbitrage_graph()
+
+    def _find_flow_path(self, flow_dict: Dict[str, Dict[str, int]], source: str, 
+                    target: str, final_flow: int) -> Optional[List[str]]:
+        """
+        Find a path from source to target with required flow using DFS.
+        
+        Args:
+            flow_dict: Dictionary of flows {node: {neighbor: flow}}
+            source: Starting node
+            target: Target node to reach
+            final_flow: Required minimum flow along path
+        """
+        path = [source]
+        visited = {source}
+        stack = [(source, list(flow_dict.get(source, {}).items()))]
+        
+        while stack:
+            current, edges = stack[-1]
             
-    def _find_flow_path(self, flow_dict: Dict[str, Dict[str, int]], 
+            if not edges:  # No more edges to explore from current node
+                stack.pop()
+                if path:
+                    visited.remove(path.pop())
+                continue
+            
+            next_node, flow = edges.pop()  # Try next edge
+            
+            if flow >= final_flow and next_node not in visited:
+                path.append(next_node)
+                
+                if next_node == target:  # Found target
+                    return path
+                
+                visited.add(next_node)
+                next_edges = list(flow_dict.get(next_node, {}).items())
+                if next_edges:  # If there are edges to explore from next_node
+                    stack.append((next_node, next_edges))
+                else:  # Dead end
+                    visited.remove(next_node)
+                    path.pop()
+        
+        return None
+
+    def _find_all_flow_paths(self, flow_dict: Dict[str, Dict[str, int]], source: str, sink: str) -> List[Tuple[List[str], int]]:
+        """
+        Find all flow paths from source to sink.
+        
+        Args:
+            flow_dict: Dictionary of flows
+            source: Source node
+            sink: Sink node
+            
+        Returns:
+            List of (path, flow) tuples
+        """
+        paths = []
+        
+        # Create residual graph we can modify
+        residual = defaultdict(dict)
+        for u, flows in flow_dict.items():
+            for v, flow in flows.items():
+                if flow > 0:
+                    residual[u][v] = flow
+        
+        # Keep finding paths until no more exist
+        while True:
+            # Find path with minimum flow along it
+            path = []
+            visited = {source}
+            stack = [(source, list(residual[source].items()))]
+            flows_to_node = {source: float('inf')}
+            
+            # DFS to find path
+            while stack and not path:
+                current, edges = stack[-1]
+                
+                if not edges:
+                    stack.pop()
+                    continue
+                    
+                next_node, flow = edges.pop()
+                if flow > 0 and next_node not in visited:
+                    visited.add(next_node)
+                    flows_to_node[next_node] = min(flows_to_node[current], flow)
+                    
+                    if next_node == sink:
+                        # Reconstruct path
+                        path = self._reconstruct_path(source, sink, stack + [(next_node, [])])
+                        min_flow = flows_to_node[sink]
+                        paths.append((path, min_flow))
+                        
+                        # Update residual
+                        for u, v in zip(path[:-1], path[1:]):
+                            residual[u][v] -= min_flow
+                            if residual[u][v] == 0:
+                                del residual[u][v]
+                    else:
+                        stack.append((next_node, list(residual[next_node].items())))
+            
+            if not path:  # No more paths found
+                break
+                
+        return paths
+
+    def _reconstruct_path(self, source: str, sink: str, stack: List[Tuple[str, List]]) -> List[str]:
+        """Helper to reconstruct path from DFS stack."""
+        path = []
+        nodes = [item[0] for item in stack]
+        
+        # Find path from source to sink
+        for i, node in enumerate(nodes):
+            path.append(node)
+            if node == sink:
+                break
+                
+        return path
+            
+    def _find_flow_path2(self, flow_dict: Dict[str, Dict[str, int]], 
                     source: str, start_pos: str, end_pos: str, 
                     min_flow: int) -> List[str]:
         """Find path with sufficient flow from start to end."""
