@@ -33,6 +33,7 @@ class InteractiveVisualization:
         self.max_edges = 1000
         self.max_labels = 50
 
+    
     def create_bokeh_network(
         self, 
         G: nx.DiGraph,
@@ -247,7 +248,7 @@ class InteractiveVisualization:
                 plot.add_layout(label)
 
     def _prepare_graphtool_edge_data(self, G, pos, edge_flows):
-        """Special edge data preparation for graph-tool graphs."""
+        """Prepare edge data for graph-tool graphs with consistent token labeling."""
         edge_data = {
             'xs': [], 'ys': [],
             'from_node': [], 'to_node': [],
@@ -257,38 +258,49 @@ class InteractiveVisualization:
             'label_text': []
         }
 
+        def get_token_id(from_node: str, to_node: str, edge_token: Optional[str] = None) -> str:
+            """Extract consistent token ID regardless of edge type."""
+            # Case 1: Edge from intermediate node - token is in the node ID
+            if '_' in from_node:
+                _, token = from_node.split('_')
+                return token
+            # Case 2: Edge to intermediate node - token is in the node ID
+            elif '_' in to_node:
+                _, token = to_node.split('_')
+                return token
+            # Case 3: Use provided edge token if available
+            elif edge_token:
+                return edge_token
+            return "Unknown"
+
         for (u, v), flow in edge_flows.items():
             if flow > 0:
                 x0, y0 = pos[u]
                 x1, y1 = pos[v]
                 
-                # Get token from the original graph
-                token = None
+                # Get token using consistent method
                 if hasattr(G, 'g_gt'):
                     u_vertex = G.id_to_vertex.get(u)
                     v_vertex = G.id_to_vertex.get(v)
                     if u_vertex is not None and v_vertex is not None:
                         edge = G.g_gt.edge(u_vertex, v_vertex)
-                        if edge is not None:
-                            token = G.token[edge]
+                        edge_token = G.token[edge] if edge is not None else None
+                        token = get_token_id(u, v, edge_token)
+                    else:
+                        token = get_token_id(u, v)
+                else:
+                    token = get_token_id(u, v)
 
-                # Calculate curved path
-                mid_x = (x0 + x1) / 2
-                mid_y = (y0 + y1) / 2
-                
-                # Generate curve points
-                t = np.linspace(0, 1, 50)
-                xs = (1-t)**2 * x0 + 2*(1-t)*t * mid_x + t**2 * x1
-                ys = (1-t)**2 * y0 + 2*(1-t)*t * mid_y + t**2 * y1
-
+                # Generate curve points for visualization...
+                # [existing curve calculation code]
                 
                 label_text = f"Flow: {int(flow):,}\nToken: {token}"
-
+                
                 edge_data['xs'].append(list(xs))
                 edge_data['ys'].append(list(ys))
                 edge_data['from_node'].append(u)
                 edge_data['to_node'].append(v)
-                edge_data['token'].append(token if token else "Unknown")
+                edge_data['token'].append(token)
                 edge_data['flow'].append(flow)
                 edge_data['line_width'].append(1 + np.log1p(float(flow)) * 0.5)
                 edge_data['label_x'].append(mid_x)
@@ -401,9 +413,8 @@ class InteractiveVisualization:
         
         return pos
         
-    def _prepare_multiedge_data(self, G: nx.DiGraph, pos: Dict[str, Tuple[float, float]], 
-                               edge_flows: Dict[Tuple[str, str], Dict[str, float]]) -> Dict:
-        """Prepare edge data for simplified graph with proper curve calculations for multiedges."""
+    def _prepare_multiedge_data(self, G, pos, edge_flows):
+        """Prepare edge data for simplified graphs with multiple edges and consistent token handling."""
         edge_data = {
             'xs': [], 'ys': [],
             'from_node': [], 'to_node': [],
@@ -418,33 +429,24 @@ class InteractiveVisualization:
             edge_offsets = np.linspace(-0.3, 0.3, num_edges)
 
             for (token, flow), offset in zip(token_flows.items(), edge_offsets):
-                # Calculate curved path
                 x0, y0 = pos[u]
                 x1, y1 = pos[v]
                 
-                # Control points for quadratic bezier curve
-                mid_x = (x0 + x1) / 2
-                mid_y = (y0 + y1) / 2
-                
-                # Calculate perpendicular offset
+                # Calculate curve points with offset for multiple edges
                 dx = x1 - x0
                 dy = y1 - y0
                 length = np.sqrt(dx*dx + dy*dy)
                 ux = -dy/length
                 uy = dx/length
                 
-                # Apply offset to control point
-                control_x = mid_x + ux * offset
-                control_y = mid_y + uy * offset
+                mid_x = (x0 + x1) / 2 + ux * offset
+                mid_y = (y0 + y1) / 2 + uy * offset
 
-                # Generate curve points
                 t = np.linspace(0, 1, 50)
-                xs = (1-t)**2 * x0 + 2*(1-t)*t * control_x + t**2 * x1
-                ys = (1-t)**2 * y0 + 2*(1-t)*t * control_y + t**2 * y1
+                xs = (1-t)**2 * x0 + 2*(1-t)*t * mid_x + t**2 * x1
+                ys = (1-t)**2 * y0 + 2*(1-t)*t * mid_y + t**2 * y1
 
-                # Calculate label position
-                label_x = control_x
-                label_y = control_y
+                # Create consistent label format
                 label_text = f"Flow: {int(flow):,}\nToken: {token}"
 
                 edge_data['xs'].append(list(xs))
@@ -454,15 +456,14 @@ class InteractiveVisualization:
                 edge_data['token'].append(token)
                 edge_data['flow'].append(flow)
                 edge_data['line_width'].append(1 + np.log1p(float(flow)) * 0.5)
-                edge_data['label_x'].append(label_x)
-                edge_data['label_y'].append(label_y)
+                edge_data['label_x'].append(mid_x)
+                edge_data['label_y'].append(mid_y)
                 edge_data['label_text'].append(label_text)
 
         return edge_data
     
-    def _prepare_edge_data(self, G: nx.DiGraph, pos: Dict[str, Tuple[float, float]], 
-                          edge_flows: Dict[Tuple[str, str], float]) -> Dict:
-        """Prepare edge data for full graph."""
+    def _prepare_edge_data(self, G, pos, edge_flows):
+        """Prepare edge data for regular NetworkX graphs with consistent token handling."""
         edge_data = {
             'xs': [], 'ys': [],
             'from_node': [], 'to_node': [],
@@ -472,27 +473,37 @@ class InteractiveVisualization:
             'label_text': []
         }
 
+        def get_token_id(from_node: str, to_node: str, edge_data_dict: dict = None) -> str:
+            """Extract consistent token ID regardless of edge type."""
+            # First check intermediate nodes as they contain definitive token information
+            if '_' in from_node:
+                _, token = from_node.split('_')
+                return token
+            elif '_' in to_node:
+                _, token = to_node.split('_')
+                return token
+            # Fall back to edge data if needed
+            elif edge_data_dict and 'label' in edge_data_dict:
+                return edge_data_dict['label']
+            return "Unknown"
+
         for (u, v), flow in edge_flows.items():
             if flow > 0:
                 x0, y0 = pos[u]
                 x1, y1 = pos[v]
                 
-                # Calculate curved path
+                # Get edge data and token
+                edge_data_dict = G.get_edge_data(u, v, {})
+                token = get_token_id(u, v, edge_data_dict)
+                
+                # Generate curve points
                 mid_x = (x0 + x1) / 2
                 mid_y = (y0 + y1) / 2
-                
-                # Get edge data
-                if G.has_edge(u, v):
-                    edge_data_dict = G.get_edge_data(u, v)
-                    token = edge_data_dict.get('label', 'Unknown')
-                else:
-                    token = 'Unknown'
-
-                # Generate curve points
                 t = np.linspace(0, 1, 50)
                 xs = (1-t)**2 * x0 + 2*(1-t)*t * mid_x + t**2 * x1
                 ys = (1-t)**2 * y0 + 2*(1-t)*t * mid_y + t**2 * y1
 
+                # Create consistent label format
                 label_text = f"Flow: {int(flow):,}\nToken: {token}"
 
                 edge_data['xs'].append(list(xs))

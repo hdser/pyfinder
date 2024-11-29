@@ -82,14 +82,14 @@ class ORToolsGraph(BaseGraph):
             self.reverse_arc_adjacency[v_idx].append((arc_idx, u_idx, capacity))
 
     def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None,
-                    requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
+                requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
         """
         Compute maximum flow between source and sink nodes using OR-Tools.
         Note: flow_func parameter is ignored as OR-Tools uses its own algorithm.
         """
         if not self.has_vertex(source) or not self.has_vertex(sink):
             raise ValueError(f"Source node '{source}' or sink node '{sink}' not in graph.")
-            
+                
         source_idx = self.node_to_index[source]
         sink_idx = self.node_to_index[sink]
         
@@ -97,10 +97,28 @@ class ORToolsGraph(BaseGraph):
             print("No edges in graph. No flow is possible.")
             return 0, {}
 
+        # Store original capacities for direct paths before processing
+        modified_edges = []
+        source_edges = self.arc_adjacency.get(source_idx, [])
+        for src_arc_idx, intermediate_idx, _ in source_edges:
+            intermediate_node = self.index_to_node[intermediate_idx]
+            if '_' in intermediate_node:
+                sink_edges = self.arc_adjacency.get(intermediate_idx, [])
+                for sink_arc_idx, target_idx, _ in sink_edges:
+                    if target_idx == sink_idx:
+                        modified_edges.extend([
+                            (src_arc_idx, self.solver.capacity(src_arc_idx)),
+                            (sink_arc_idx, self.solver.capacity(sink_arc_idx))
+                        ])
+
         # Process direct paths efficiently using cached adjacency maps
         direct_flow, direct_flow_dict = self._process_direct_paths(
             source, sink, source_idx, sink_idx, requested_flow
         )
+
+        # Restore original capacities
+        for arc_idx, original_capacity in modified_edges:
+            self.solver.set_arc_capacity(arc_idx, original_capacity)
 
         if requested_flow and direct_flow >= int(requested_flow):
             print(f"Satisfied requested flow of {requested_flow} with direct edges.")
@@ -122,6 +140,7 @@ class ORToolsGraph(BaseGraph):
             return total_flow + direct_flow, flow_dict
         else:
             raise RuntimeError("OR-Tools solver failed to find optimal solution")
+    
 
     def _process_direct_paths(self, source: str, sink: str, source_idx: int, sink_idx: int,
                             requested_flow: Optional[str]) -> Tuple[int, Dict[str, Dict[str, int]]]:

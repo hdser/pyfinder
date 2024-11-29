@@ -147,7 +147,7 @@ class NetworkFlowAnalysis:
             edge_flows = {}
             
             # Process each path
-            for path, flow_value in all_paths:
+            for path, path_flow_value in all_paths:
                 # Complete cycle back to source
                 real_path = path[:-1] + [source]  # Replace virtual_sink with source
                 
@@ -161,9 +161,9 @@ class NetworkFlowAnalysis:
                 # Record flows
                 for i in range(len(real_path)-1):
                     edge = (real_path[i], real_path[i+1])
-                    edge_flows[edge] = edge_flows.get(edge, 0) + flow_value
+                    edge_flows[edge] = edge_flows.get(edge, 0) + path_flow_value
                 
-                paths.append((real_path, tokens, flow_value))
+                paths.append((real_path, tokens, path_flow_value))
             
             if not paths:
                 return flow_value, [], {}, {}
@@ -291,38 +291,4 @@ class NetworkFlowAnalysis:
             if node == sink:
                 break
                 
-        return path
-            
-    def _find_flow_path2(self, flow_dict: Dict[str, Dict[str, int]], 
-                    source: str, start_pos: str, end_pos: str, 
-                    min_flow: int) -> List[str]:
-        """Find path with sufficient flow from start to end."""
-        # Start with source node only
-        path = [source]
-        current = source
-        visited = {source}
-        
-        def get_next_node(curr_node: str, visited_nodes: set) -> Optional[str]:
-            """Get next valid node in path with sufficient flow."""
-            for next_node, flow in flow_dict.get(curr_node, {}).items():
-                # Check flow is sufficient and node not already visited
-                if flow >= min_flow and next_node not in visited_nodes:
-                    return next_node
-            return None
-
-        # Build path step by step
-        while current != end_pos:
-            next_node = get_next_node(current, visited)
-            if next_node:
-                # Add node to path
-                path.append(next_node)
-                visited.add(next_node)
-                current = next_node
-            else:
-                # Backtrack if no valid next node
-                if len(path) <= 1:
-                    return []  # No valid path found
-                path.pop()
-                current = path[-1]
-                    
         return path

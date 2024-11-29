@@ -168,62 +168,7 @@ class GraphToolGraph(BaseGraph):
         finally:
             self.g_gt.clear_filters()
 
-    def compute_flow2(self, source: str, sink: str, flow_func: Optional[Callable] = None,
-                    requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
-        """Compute maximum flow between source and sink nodes."""
-        s = self.get_vertex(source)
-        t = self.get_vertex(sink)
-
-        if s is None or t is None:
-            raise ValueError(f"Source node '{source}' or sink node '{sink}' not in graph.")
-
-        # Early exit if sink has no incoming edges
-        if t.in_degree() == 0:
-            print("Sink has no incoming edges. No flow is possible.")
-            return 0, {}
-
-        # Create capacity copy for modifications
-        capacity_copy = self.g_gt.new_edge_property("int64_t")
-        capacity_copy.a = self.capacity.a.copy()
-
-        # Process direct paths
-        direct_flow, direct_flow_dict = self._process_direct_paths(source, sink, s, t, capacity_copy, requested_flow)
-
-        if requested_flow and direct_flow >= int(requested_flow):
-            print(f"Satisfied requested flow of {requested_flow} with direct edges.")
-            self._flow_dict = direct_flow_dict  # Cache the flow dictionary
-            return direct_flow, direct_flow_dict
-
-        remaining_flow = None if requested_flow is None else int(requested_flow) - direct_flow
-
-        # Filter zero capacity edges
-        edge_filter = self.g_gt.new_edge_property("bool")
-        for e in self.g_gt.edges():
-            edge_filter[e] = (capacity_copy[e] > 0)
-        self.g_gt.set_edge_filter(edge_filter)
-
-        try:
-            # Compute flow
-            start = time.time()
-            res = flow_func(self.g_gt, s, t, capacity_copy)
-            print(f"Solver Time: {time.time() - start}")
-
-            # Compute actual flows
-            flow = capacity_copy.copy()
-            flow.a = capacity_copy.a - res.a
-
-            # Build flow dictionary
-            total_flow, flow_dict = self._build_flow_dict(flow, t, remaining_flow, direct_flow_dict)
-
-            print(total_flow,direct_flow)
-
-            # Cache the flow dictionary
-            self._flow_dict = flow_dict
-            return total_flow + direct_flow, flow_dict
-
-        finally:
-            self.g_gt.clear_filters()
-
+    
 
     def _process_direct_paths(self, source: str, sink: str, s, t, capacity_copy, requested_flow: Optional[str]) -> Tuple[int, Dict[str, Dict[str, int]]]:
         """Process direct paths through intermediate nodes."""
@@ -280,47 +225,6 @@ class GraphToolGraph(BaseGraph):
                 if int(capacity_copy[e]) < 0:  # Check for negative capacities
                     capacity_copy[e] = cap
 
-    def _process_direct_paths2(self, source: str, sink: str, s, t, capacity_copy, requested_flow: Optional[str]) -> Tuple[int, Dict[str, Dict[str, int]]]:
-        """Process direct paths through intermediate nodes."""
-        direct_flow = 0
-        direct_flow_dict = {}
-        direct_edges = []
-        
-        for e in s.out_edges():
-            v = e.target()
-            if '_' in self.vertex_id[v]:
-                for e2 in v.out_edges():
-                    if e2.target() == t:
-                        direct_edges.append((
-                            self.vertex_id[v],
-                            min(int(capacity_copy[e]), int(capacity_copy[e2])),
-                            e,
-                            e2
-                        ))
-
-        if direct_edges:
-            direct_edges.sort(key=lambda x: x[1], reverse=True)
-            req_flow_int = int(requested_flow) if requested_flow is not None else None
-            remaining_flow = req_flow_int if req_flow_int is not None else float('inf')
-
-            for intermediate_node, capacity, e1, e2 in direct_edges:
-                if req_flow_int is not None and remaining_flow <= 0:
-                    break
-
-                flow = min(capacity, remaining_flow) if req_flow_int is not None else capacity
-
-                if flow > 0:
-                    direct_flow_dict.setdefault(source, {})[intermediate_node] = flow
-                    direct_flow_dict.setdefault(intermediate_node, {})[sink] = flow
-                    direct_flow += flow
-
-                    capacity_copy[e1] -= flow
-                    capacity_copy[e2] -= flow
-
-                    if req_flow_int is not None:
-                        remaining_flow -= flow
-
-        return direct_flow, direct_flow_dict
     
     def _build_flow_dict(self, flow, t, remaining_flow: Optional[int],
                     direct_flow_dict: Dict[str, Dict[str, int]]):
@@ -361,56 +265,6 @@ class GraphToolGraph(BaseGraph):
 
         return total_flow, flow_dict
 
-
-    def _build_flow_dict2(self, flow, t, remaining_flow: Optional[int],
-                     direct_flow_dict: Dict[str, Dict[str, int]]) -> Tuple[int, Dict[str, Dict[str, int]]]:
-        """Build flow dictionary from computed flow."""
-        total_flow = 0
-        flow_dict = {}
-        
-        # First pass: collect all flows
-        for e in self.g_gt.edges():
-            f = int(flow[e])
-            if f > 0:
-                u = self.vertex_id[e.source()]
-                v = self.vertex_id[e.target()]
-                
-                # Initialize dictionary for source node if needed
-                if u not in flow_dict:
-                    flow_dict[u] = {}
-                
-                # Add or update flow value
-                flow_dict[u][v] = flow_dict[u].get(v, 0) + f
-                
-                # Track total flow into sink
-                if e.target() == t:
-                    total_flow += f
-
-        # Verify flow conservation at intermediate nodes
-        for node in list(flow_dict.keys()):
-            if '_' in node:  # This is an intermediate node
-                in_flow = sum(flows.get(node, 0) for flows in flow_dict.values())
-                out_flow = sum(flow_dict.get(node, {}).values())
-                
-                if abs(in_flow - out_flow) > 1e-10:  # Allow small numerical errors
-                    self.logger.warning(
-                        f"Flow conservation violated at {node}: in={in_flow}, out={out_flow}"
-                    )
-
-        # Apply remaining flow limit if specified
-        if remaining_flow is not None:
-            total_flow = min(total_flow, remaining_flow)
-
-        # Combine with direct flows
-        if direct_flow_dict:
-            for u, flows in direct_flow_dict.items():
-                if u not in flow_dict:
-                    flow_dict[u] = flows.copy()
-                else:
-                    for v, f in flows.items():
-                        flow_dict[u][v] = flow_dict[u].get(v, 0) + f
-
-        return total_flow, flow_dict
 
     def _build_flow_dict3(self, flow, t, remaining_flow: Optional[int],
                         direct_flow_dict: Dict[str, Dict[str, int]]) -> Tuple[int, Dict[str, Dict[str, int]]]:

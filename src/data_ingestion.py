@@ -156,6 +156,7 @@ class DataIngestion:
         self.edges.extend(new_edges)
         self.capacities.extend(new_capacities)
         self.tokens.extend(new_tokens)
+
         
         # Clean up intermediary data
         del balance_edges
