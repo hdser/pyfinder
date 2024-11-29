@@ -71,53 +71,100 @@ class DataIngestion:
             gc.collect()
 
     def _process_chunk_edges(self, trust_chunk: pd.DataFrame, balance_chunk: pd.DataFrame):
-        """Process edges for a single chunk of data."""
-        # Merge trusts and balances
-        merged = trust_chunk.merge(
-            balance_chunk,
+        """
+        Process edges for a single chunk of data, ensuring no duplicate edges are created.
+        
+        The function creates two types of edges:
+        1. Account -> Intermediate node (representing token holding)
+        2. Intermediate node -> Truster (representing trust relationships)
+        """
+        # First, process the balance information to create account -> intermediate edges
+        balance_edges = balance_chunk.copy()
+        balance_edges['account'] = balance_edges['account'].str.lower()
+        balance_edges['tokenAddress'] = balance_edges['tokenAddress'].str.lower()
+        
+        # Convert balances and filter out zero balances
+        balance_edges['balance'] = balance_edges['demurragedTotalBalance'].apply(self._convert_balance)
+        balance_edges = balance_edges[balance_edges['balance'] > 0]
+        
+        # Create the first set of edges (account -> intermediate)
+        balance_edges['account_id'] = balance_edges['account'].map(self.address_to_id)
+        balance_edges['token_id'] = balance_edges['tokenAddress'].map(self.address_to_id)
+        balance_edges['intermediate_node'] = balance_edges['account_id'] + '_' + balance_edges['token_id']
+        
+        # Create holder -> intermediate edges
+        holder_edges = balance_edges[[
+            'account_id', 'intermediate_node', 'token_id', 'balance'
+        ]].rename(columns={
+            'account_id': 'from',
+            'intermediate_node': 'to',
+            'token_id': 'token',
+            'balance': 'capacity'
+        })
+        
+        # Now process trust relationships
+        trust_edges = trust_chunk.merge(
+            balance_edges[['account', 'tokenAddress', 'intermediate_node', 'balance']],
             left_on='trustee',
             right_on='tokenAddress',
             how='inner'
         )
         
-        # Filter out self-transfers
-        merged = merged[merged['account'] != merged['truster']].copy()
+        # Filter out self-trust relationships
+        trust_edges = trust_edges[trust_edges['account'] != trust_edges['truster']]
         
-        # Convert balances
-        merged['balance'] = merged['demurragedTotalBalance'].apply(self._convert_balance)
-        merged = merged[merged['balance'] > 0]
+        # Create intermediate -> truster edges
+        trust_edges['truster_id'] = trust_edges['truster'].map(self.address_to_id)
+        outgoing_edges = trust_edges[[
+            'intermediate_node', 'truster_id', 'tokenAddress', 'balance'
+        ]].rename(columns={
+            'intermediate_node': 'from',
+            'truster_id': 'to',
+            'tokenAddress': 'token',
+            'balance': 'capacity'
+        })
         
-        # Map to IDs
-        merged['account_id'] = merged['account'].map(self.address_to_id)
-        merged['truster_id'] = merged['truster'].map(self.address_to_id)
-        merged['token_id'] = merged['tokenAddress'].map(self.address_to_id)
+        # Combine all edges and ensure uniqueness
+        all_edges = pd.concat([holder_edges, outgoing_edges])
+        all_edges['edge_key'] = all_edges['from'] + '_TO_' + all_edges['to']
         
-        # Create intermediate nodes
-        merged['intermediate_node'] = merged['account_id'] + '_' + merged['token_id']
+        # For duplicate edges, keep the one with maximum capacity
+        unique_edges = all_edges.sort_values('capacity', ascending=False).drop_duplicates(
+            subset=['edge_key'], 
+            keep='first'
+        )
         
-        # Create edges
-        edges1 = merged[['account_id', 'intermediate_node', 'token_id', 'balance']]
-        edges2 = merged[['intermediate_node', 'truster_id', 'token_id', 'balance']]
+        # Convert to final format and extend main lists
+        edge_tuples = list(zip(unique_edges['from'], unique_edges['to']))
+        capacities = unique_edges['capacity'].tolist()
+        tokens = unique_edges['token'].tolist()
         
-        edges1.columns = ['from', 'to', 'token', 'capacity']
-        edges2.columns = ['from', 'to', 'token', 'capacity']
+        # Verify no duplicates before extending
+        existing_edges = set((f, t) for f, t in self.edges)
+        new_edges = []
+        new_capacities = []
+        new_tokens = []
         
-        all_edges = pd.concat([edges1, edges2]).drop_duplicates()
+        for (f, t), cap, tok in zip(edge_tuples, capacities, tokens):
+            if (f, t) not in existing_edges:
+                new_edges.append((f, t))
+                new_capacities.append(cap)
+                new_tokens.append(tok)
+                existing_edges.add((f, t))
         
-        # Add to main edge lists
-        new_edges = list(zip(all_edges['from'], all_edges['to']))
-        new_capacities = all_edges['capacity'].tolist()
-        new_tokens = all_edges['token'].tolist()
-        
+        # Extend the main lists with verified unique edges
         self.edges.extend(new_edges)
         self.capacities.extend(new_capacities)
         self.tokens.extend(new_tokens)
+
         
-        # Clean up
-        del merged
-        del edges1
-        del edges2
+        # Clean up intermediary data
+        del balance_edges
+        del trust_edges
+        del holder_edges
+        del outgoing_edges
         del all_edges
+        del unique_edges
         gc.collect()
 
     @staticmethod    

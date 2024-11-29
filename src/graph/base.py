@@ -97,6 +97,32 @@ class BaseGraph:
         """Create simplified paths."""
         pass
 
+    @abstractmethod
+    def prepare_arbitrage_graph(self, start_node: str, start_token: str, end_token: str) -> Tuple[str, str]:
+        """
+        Prepare graph for arbitrage max-flow computation by adding virtual sink.
+        
+        Args:
+            start_node: Node to start from
+            start_token: Token to start with 
+            end_token: Token to end with
+            
+        Returns:
+            Tuple of (start_id, virtual_sink_id) to use for max flow computation
+        """
+        pass
+        
+    @abstractmethod
+    def cleanup_arbitrage_graph(self):
+        """Remove any temporary nodes/edges added for arbitrage computation."""
+        pass
+        
+    @abstractmethod
+    def interpret_arbitrage_flow(self, flow_dict: Dict[str, Dict[str, int]], 
+                               start_node: str, virtual_sink: str) -> Dict[str, Dict[str, int]]:
+        """Convert arbitrage flow dict into actual token flows."""
+        pass
+
 class GraphCreator:
     @staticmethod
     def create_graph(graph_type: str, edges: List[Tuple[str, str]], capacities: List[float], 

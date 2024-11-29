@@ -6,6 +6,10 @@ from collections import defaultdict
 from .base import BaseGraph
 from .flow.decomposition import decompose_flow, simplify_paths
 from .flow.utils import verify_flow_conservation
+import logging
+
+# Configure logging for the module
+logger = logging.getLogger(__name__)
 
 class ORToolsGraph(BaseGraph):
     def __init__(self, edges: List[Tuple[str, str]], capacities: List[float], tokens: List[str]):
@@ -17,6 +21,7 @@ class ORToolsGraph(BaseGraph):
             capacities: List of edge capacities
             tokens: List of token identifiers for each edge
         """
+        self.logger = logging.getLogger(__name__)
         # Create mappings and data structures
         self._initialize_data_structures(edges, capacities, tokens)
         
@@ -77,14 +82,14 @@ class ORToolsGraph(BaseGraph):
             self.reverse_arc_adjacency[v_idx].append((arc_idx, u_idx, capacity))
 
     def compute_flow(self, source: str, sink: str, flow_func: Optional[Callable] = None,
-                    requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
+                requested_flow: Optional[str] = None) -> Tuple[int, Dict[str, Dict[str, int]]]:
         """
         Compute maximum flow between source and sink nodes using OR-Tools.
         Note: flow_func parameter is ignored as OR-Tools uses its own algorithm.
         """
         if not self.has_vertex(source) or not self.has_vertex(sink):
             raise ValueError(f"Source node '{source}' or sink node '{sink}' not in graph.")
-            
+                
         source_idx = self.node_to_index[source]
         sink_idx = self.node_to_index[sink]
         
@@ -92,10 +97,28 @@ class ORToolsGraph(BaseGraph):
             print("No edges in graph. No flow is possible.")
             return 0, {}
 
+        # Store original capacities for direct paths before processing
+        modified_edges = []
+        source_edges = self.arc_adjacency.get(source_idx, [])
+        for src_arc_idx, intermediate_idx, _ in source_edges:
+            intermediate_node = self.index_to_node[intermediate_idx]
+            if '_' in intermediate_node:
+                sink_edges = self.arc_adjacency.get(intermediate_idx, [])
+                for sink_arc_idx, target_idx, _ in sink_edges:
+                    if target_idx == sink_idx:
+                        modified_edges.extend([
+                            (src_arc_idx, self.solver.capacity(src_arc_idx)),
+                            (sink_arc_idx, self.solver.capacity(sink_arc_idx))
+                        ])
+
         # Process direct paths efficiently using cached adjacency maps
         direct_flow, direct_flow_dict = self._process_direct_paths(
             source, sink, source_idx, sink_idx, requested_flow
         )
+
+        # Restore original capacities
+        for arc_idx, original_capacity in modified_edges:
+            self.solver.set_arc_capacity(arc_idx, original_capacity)
 
         if requested_flow and direct_flow >= int(requested_flow):
             print(f"Satisfied requested flow of {requested_flow} with direct edges.")
@@ -107,7 +130,7 @@ class ORToolsGraph(BaseGraph):
         start_time = time.time()
         status = self.solver.solve(source_idx, sink_idx)
         print(f"Solver Time: {time.time() - start_time}")
-        
+
         if status == self.solver.OPTIMAL:
             total_flow, flow_dict = self._build_flow_dict(
                 sink_idx, remaining_flow, direct_flow_dict
@@ -117,6 +140,7 @@ class ORToolsGraph(BaseGraph):
             return total_flow + direct_flow, flow_dict
         else:
             raise RuntimeError("OR-Tools solver failed to find optimal solution")
+    
 
     def _process_direct_paths(self, source: str, sink: str, source_idx: int, sink_idx: int,
                             requested_flow: Optional[str]) -> Tuple[int, Dict[str, Dict[str, int]]]:
@@ -249,15 +273,169 @@ class ORToolsGraph(BaseGraph):
         return edge_data['capacity'] if edge_data else None
 
     def get_node_outflow_capacity(self, source_id: str) -> int:
+        """Compute total capacity of outgoing edges from source_id to intermediate nodes."""
         total_capacity = 0
+        # Create a set of edges already counted to avoid duplicates
+        counted_edges = set()
+        
+        # Use cached outgoing edges
         for v, capacity, _ in self.outgoing_edges[source_id]:
-            if '_' in v:
+            if '_' in v and (source_id, v) not in counted_edges:
                 total_capacity += capacity
+                counted_edges.add((source_id, v))
+        
         return total_capacity
 
     def get_node_inflow_capacity(self, sink_id: str) -> int:
+        """Compute total capacity of incoming edges to sink_id from intermediate nodes."""
         total_capacity = 0
+        # Create a set of edges already counted to avoid duplicates
+        counted_edges = set()
+        
+        # Use cached incoming edges
         for u, capacity, _ in self.incoming_edges[sink_id]:
-            if '_' in u:
+            if '_' in u and (u, sink_id) not in counted_edges:
                 total_capacity += capacity
+                counted_edges.add((u, sink_id))
+        
         return total_capacity
+    
+
+    def prepare_arbitrage_graph(self, start_node: str, start_token: str, end_token: str) -> Tuple[str, str]:
+        """
+        Prepare graph for arbitrage analysis with OR-Tools implementation.
+        """
+        try:
+            # Verify start intermediate node exists
+            start_intermediate = f"{start_node}_{start_token}"
+            if start_intermediate not in self.node_to_index:
+                self.logger.warning(f"No intermediate node found for {start_node} with token {start_token}")
+                return None, None
+
+            # Store original edges and capacities
+            self._temp_edges = []
+            source_idx = self.node_to_index[start_node]
+            source_arcs = self.arc_adjacency.get(source_idx, [])
+            
+            for arc_idx, target_idx, capacity in source_arcs:
+                target_node = self.index_to_node[target_idx]
+                self._temp_edges.append((
+                    arc_idx,
+                    target_node,
+                    self.solver.capacity(arc_idx)
+                ))
+                # Temporarily set capacity to 0
+                self.solver.set_arc_capacity(arc_idx, 0)
+
+            # Restore only the edge to start token intermediate node
+            start_inter_idx = self.node_to_index[start_intermediate]
+            available_capacity = 0
+            for arc_idx, target_idx, _ in source_arcs:
+                if target_idx == start_inter_idx:
+                    original_capacity = next(
+                        cap for a_idx, _, cap in self._temp_edges 
+                        if a_idx == arc_idx
+                    )
+                    self.solver.set_arc_capacity(arc_idx, original_capacity)
+                    available_capacity = original_capacity
+                    break
+
+            if available_capacity == 0:
+                self.logger.warning(f"No edge found from {start_node} to {start_intermediate}")
+                self._restore_edges()
+                return None, None
+
+            # Create virtual sink
+            virtual_sink_id = f"virtual_sink_{start_node}_{start_token}_{end_token}"
+            virtual_sink_idx = len(self.node_to_index)
+            self.node_to_index[virtual_sink_id] = virtual_sink_idx
+            self.index_to_node[virtual_sink_idx] = virtual_sink_id
+
+            # Find end positions using reverse arc adjacency
+            edges_added = 0
+            source_idx = self.node_to_index[start_node]
+            
+            # Process incoming edges to start_node directly from reverse_arc_adjacency
+            for arc_idx, from_idx, capacity in self.reverse_arc_adjacency.get(source_idx, []):
+                from_node = self.index_to_node[from_idx]
+                if '_' in from_node:
+                    holder, token = from_node.split('_')
+                    if token == end_token:
+                        # Add edge to virtual sink with limited capacity
+                        limited_capacity = min(capacity, available_capacity)
+                        arc_idx = self.solver.add_arc_with_capacity(
+                            from_idx,
+                            virtual_sink_idx,
+                            limited_capacity
+                        )
+                        edges_added += 1
+
+            if edges_added == 0:
+                self.logger.warning("No valid end states found for arbitrage")
+                self._restore_edges()
+                return None, None
+
+            self.logger.info(f"Added {edges_added} edges to virtual sink")
+            return start_node, virtual_sink_id
+
+        except Exception as e:
+            self.logger.error(f"Error preparing arbitrage graph: {e}")
+            self._restore_edges()
+            raise
+
+    def cleanup_arbitrage_graph(self):
+        """Clean up temporary changes made for arbitrage analysis."""
+        try:
+            if hasattr(self, '_temp_edges'):
+                # Restore original edge capacities
+                for arc_idx, _, capacity in self._temp_edges:
+                    self.solver.set_arc_capacity(arc_idx, capacity)
+                delattr(self, '_temp_edges')
+
+            # Remove virtual sink from mappings
+            virtual_sinks = [
+                node_id for node_id in list(self.node_to_index.keys())
+                if str(node_id).startswith('virtual_sink_')
+            ]
+            
+            for v_id in virtual_sinks:
+                idx = self.node_to_index[v_id]
+                del self.node_to_index[v_id]
+                del self.index_to_node[idx]
+
+        except Exception as e:
+            self.logger.error(f"Error cleaning up arbitrage graph: {e}")
+            raise
+
+    def interpret_arbitrage_flow(self, flow_dict: Dict[str, Dict[str, int]], 
+                            start_node: str, virtual_sink: str) -> Dict[str, Dict[str, int]]:
+        """Convert flows through virtual sink back to actual token flows."""
+        real_flows = defaultdict(dict)
+        
+        # First copy all non-virtual flows
+        for u, flows in flow_dict.items():
+            for v, flow in flows.items():
+                if v != virtual_sink and flow > 0:
+                    real_flows[u][v] = flow
+        
+        # Process flows to virtual sink
+        for u, flows in flow_dict.items():
+            virtual_flow = flows.get(virtual_sink, 0)
+            if virtual_flow > 0:
+                # Get capacity of edge from u back to start_node
+                if self.has_edge(u, start_node):
+                    # Add the return flow
+                    real_flows[u][start_node] = virtual_flow
+        
+        return dict(real_flows)
+
+    def _restore_edges(self):
+        """Restore temporarily removed edges."""
+        try:
+            if hasattr(self, '_temp_edges'):
+                for arc_idx, _, capacity in self._temp_edges:
+                    self.solver.set_arc_capacity(arc_idx, capacity)
+                delattr(self, '_temp_edges')
+        except Exception as e:
+            self.logger.error(f"Error restoring edges: {e}")
+            raise

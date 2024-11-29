@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Dict, Union, Tuple
+from typing import Dict, Union, Tuple, Callable, List, Optional
 import random
 import time
 
@@ -129,3 +129,40 @@ class GraphManager:
                     
         except Exception as e:
             return f"Error getting node info: {str(e)}"
+        
+
+    def analyze_arbitrage(self, source: str, start_token: str, end_token: str,
+                         flow_func: Optional[Callable] = None) -> Tuple[int, List, Dict, Dict]:
+        """
+        Find arbitrage opportunities using max flow.
+        
+        Args:
+            source: Address of source/target node
+            start_token: Address of token to start with
+            end_token: Address of token to end with
+            flow_func: Optional flow algorithm to use
+            
+        Returns:
+            Tuple containing:
+            - Total flow value
+            - Simplified paths
+            - Simplified edge flows
+            - Original edge flows
+        """
+        # Convert addresses to internal IDs
+        source_id = self.data_ingestion.get_id_for_address(source)
+        start_token_id = self.data_ingestion.get_id_for_address(start_token)
+        end_token_id = self.data_ingestion.get_id_for_address(end_token)
+        
+        if not all([source_id, start_token_id, end_token_id]):
+            raise ValueError("Invalid addresses provided")
+            
+        # Run arbitrage analysis
+        results = self.flow_analysis.analyze_arbitrage(
+            source_id,
+            start_token_id,
+            end_token_id,
+            flow_func
+        )
+        
+        return results

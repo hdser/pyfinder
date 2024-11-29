@@ -45,36 +45,50 @@ def decompose_flow(flow_dict: Dict[str, Dict[str, int]], source: str, sink: str,
     return paths, edge_flows
 
 def simplify_paths(original_paths: List[Tuple[List[str], List[str], int]]) -> List[Tuple[List[str], List[str], int]]:
-    """Simplify paths by removing intermediate nodes."""
+    """Simplify paths by removing intermediate nodes while preserving key transitions."""
     simplified_paths = []
     
-    for path, labels, flow in original_paths:
+    for path, tokens, flow in original_paths:
         simplified_path = []
-        simplified_labels = []
-        current_token = None
-        last_real_node = None
+        simplified_tokens = []
         
-        for i, (node, label) in enumerate(zip(path, labels)):
-            if '_' not in node:
-                if last_real_node is None:
+        # Start with source
+        simplified_path.append(path[0])
+        
+        # Process middle nodes - keep real nodes where token changes occur
+        prev_token = None
+        for i, node in enumerate(path[1:-1]): 
+            if '_' in node:
+                # Get token from intermediate node
+                _, token = node.split('_')
+                if token != prev_token:
+                    # Keep the real node before token change
+                    real_node = node.split('_')[0]
+                    if not simplified_path or simplified_path[-1] != real_node:
+                        simplified_path.append(real_node)
+                        if prev_token:
+                            simplified_tokens.append(prev_token)
+                    prev_token = token
+                    
+            else:
+                # This is a real node - keep it if it represents a transition
+                if prev_token:
                     simplified_path.append(node)
-                    last_real_node = node
-                    current_token = label
-                elif label != current_token:
-                    if node != last_real_node:
-                        simplified_path.append(last_real_node)
-                        simplified_labels.append(current_token)
-                        simplified_path.append(node)
-                        current_token = label
-                    last_real_node = node
+                    simplified_tokens.append(prev_token)
+                    prev_token = None
         
-        if last_real_node and last_real_node != path[-1] and '_' not in path[-1]:
-            simplified_path.append(path[-1])
-            simplified_labels.append(current_token)
+        # Add final token
+        if prev_token:
+            simplified_tokens.append(prev_token)
+            
+        # Complete cycle back to source
+        simplified_path.append(path[0])
         
-        if len(simplified_path) > 1:
-            simplified_paths.append((simplified_path, simplified_labels, flow))
+        # Only add if path has meaningful transitions
+        if len(simplified_path) > 2 and len(simplified_tokens) > 0:
+            simplified_paths.append((simplified_path, simplified_tokens, flow))
     
     return simplified_paths
+
 
 __all__ = ['decompose_flow', 'simplify_paths']
