@@ -66,7 +66,7 @@ By using this intermediate node structure, we automatically enforce balance cons
 
 ![Intermediate Node](img/intermediate_node.png)
 
-For an actual implementation take the case take the requested Flow of 4000000000000000000 from node 9 to node 318. The full graph implementation gives 
+For an actual implementation take the case take the requested Flow of 129130 mCRC from node 109023 to node 52226. The full graph implementation gives 
 
 ![Full Graph](img/full_example.png)
 
@@ -74,173 +74,440 @@ Which can the be simplified to
 
 ![Simplified Graph](img/simplified_example.png)
 
+
 ## Installation
 
 1. Clone the repository:
-   ```
-   git clone https://github.com/hdser/pyfinder.git
-   cd pyfinder
-   ```
+```bash
+git clone https://github.com/hdser/pyfinder.git
+cd pyfinder
+```
 
-2. Install dependencies:
-   ```
-   conda env create -f environment.yml
-   ```
+2. Install dependencies using conda:
+```bash
+conda env create -f environment.yml
+conda activate pyfinder
+```
 
-3. Run Dashboard:
-   ```
-   conda activate pyfinder
-   python run.py
-   ```
+3. Run dashboard:
+```bash
+python run.py
+```
 
-Or run dashboard with docker
-   ```
-   docker compose up
-   ```
+Or run dashboard with docker:
+```bash
+docker compose up
+```
 
 ## Usage
 
-The main script `main.py` provides two modes of operation:
-1. Run Mode: Analyze flow between specific source and sink nodes.
-2. Benchmark Mode: Compare performance of different flow algorithms.
+PyFinder provides three main interfaces for analysis:
 
-To run the script:
+### 1. Interactive Dashboard (run.py)
+
+The dashboard offers a web-based interface for interactive analysis. Launch options:
+
+```bash
+# Direct Python launch
+python run.py
+
+# Docker Compose launch
+docker compose up
+
+# Manual Docker launch
+docker build -t pyfinder .
+docker run -p 5006:5006 pyfinder
 ```
-python -m src.main
+
+Configuration:
+```python
+# Default settings in run.py
+port = int(os.getenv('PORT', '5006'))
+host = os.getenv('HOST', '0.0.0.0')
+websocket_max_size = int(os.getenv('BOKEH_WEBSOCKET_MAX_MESSAGE_SIZE', 20*1024*1024))
+```
+
+### 2. Command Line Analysis (main.py)
+
+The CLI tool provides two operation modes:
+
+#### Analysis Mode
+```bash
+python -m src.main \
+    --trust-file data/trust.csv \
+    --balance-file data/balance.csv \
+    --implementation networkx \
+    --source 0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0 \
+    --sink 0xe98f0672a8e31b408124f975749905f8003a2e04
+```
+
+Available implementations:
+- networkx (Python-based, full algorithm support)
+- graph-tool (C++-based, high performance)
+- ortools (Industrial solver)
+
+#### Benchmark Mode
+```bash
+python -m src.main --benchmark \
+    --implementations networkx,graph_tool \
+    --output-dir benchmarks
+```
+
+### 3. Arbitrage Analysis (arb.py)
+
+Specialized tool for detecting arbitrage opportunities:
+
+```bash
+python arb.py \
+    --trust-file data/trust.csv \
+    --balance-file data/balance.csv \
+    --implementation graph_tool \
+    --source 0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0 \
+    --start-token 0xe98f0672a8e31b408124f975749905f8003a2e04 \
+    --end-token 0x123...
 ```
 
 ## Project Structure
 
-- `src/`: Contains the main project modules
-  - `data_ingestion.py`: Handles data loading and preprocessing
-  - `graph_creation.py`: Creates and manages the network graph
-  - `flow_analysis.py`: Implements flow analysis algorithms
-  - `visualization.py`: Provides graph visualization functions
-  - `graph_manager.py`: Coordinates the overall flow analysis process
-- `main.py`: The main script to run the analysis
-- `data/`: Directory for input data files
-- `output/`: Directory for output files and visualizations
+```
+pyfinder/
+├── src/                            # Core implementation
+│   ├── graph/                      # Graph implementations
+│   │   ├── base.py                 # Abstract base classes
+│   │   ├── networkx_graph.py
+│   │   ├── graphtool_graph.py
+│   │   └── ortools_graph.py
+│   |   └── flow/                   # Flow algorithms
+│   │       ├── analysis.py         # Flow analysis
+│   │       ├── decomposition.py
+│   │       └── utils.py
+│   ├── visualization.py            # Visualization tools
+│   ├── data_ingestion.py           # Data loading
+│   └── graph_manager.py            # Orchestration
+├── dashboard/                      # Web interface
+│   ├── components/                 # UI components
+│   └── visualization/              # Interactive viz
+├── data/                           # Input data
+└── output/                         # Analysis results
+```
 
 ## Class Descriptions
 
-### Classes
+### GraphManager
 
-1. **GraphManager**
-   - Main class that orchestrates the flow analysis process.
-   - Methods:
-     - `__init__(self, trusts_file, balances_file, graph_type='networkx')`: Initializes the graph manager.
-     - `analyze_flow(self, source, sink, flow_func, cutoff)`: Performs flow analysis between source and sink.
-     - `visualize_flow(self, simplified_paths, simplified_edge_flows, original_edge_flows, output_dir)`: Generates visualizations of the flow.
+Core orchestration class that coordinates analysis:
 
-2. **DataIngestion**
-   - Handles data loading and preprocessing.
-   - Methods:
-     - `__init__(self, df_trusts, df_balances)`: Initializes with trust and balance data.
-     - `_create_id_mappings(self)`: Creates mappings between addresses and internal IDs.
-     - `_create_edge_data(self)`: Generates edge data for the graph.
-     - `get_id_for_address(self, address)`: Retrieves internal ID for a given address.
-     - `get_address_for_id(self, id)`: Retrieves address for a given internal ID.
+```python
+from src.graph_manager import GraphManager
 
-3. **NetworkXGraph / GraphToolGraph**
-   - Wrapper classes for graph libraries (NetworkX and graph-tool).
-   - Methods:
-     - `__init__(self, edges, capacities, tokens)`: Initializes the graph.
-     - `compute_flow(self, source, sink, flow_func, requested_flow)`: Computes maximum flow.
-     - `flow_decomposition(self, flow_dict, source, sink, requested_flow)`: Decomposes flow into paths.
-     - `simplified_flow_decomposition(self, original_paths)`: Simplifies flow paths.
+# Initialize with CSV data
+manager = GraphManager(
+    data_source=("data/trust.csv", "data/balance.csv"),
+    graph_type="networkx"
+)
 
-4. **NetworkFlowAnalysis**
-   - Performs the core flow analysis.
-   - Methods:
-     - `analyze_flow(self, source, sink, flow_func, requested_flow)`: Main method for flow analysis.
-     - `simplify_edge_flows(self, edge_flows)`: Simplifies edge flows for visualization.
+# Analyze flow
+results = manager.analyze_flow(
+    source="0x3fb4...",
+    sink="0xe98f...",
+    flow_func=None,  # Use default algorithm
+    requested_flow="4000000000000000000"
+)
 
-5. **Visualization**
-   - Handles the creation of visualizations.
-   - Methods:
-     - `plot_flow_paths(g, paths, edge_flows, id_to_address, filename)`: Plots simplified flow paths.
-     - `plot_full_flow_paths(g, edge_flows, id_to_address, filename)`: Plots full flow paths.
-     - `custom_flow_layout(G, source, sink)`: Creates a custom layout for flow graphs.
+# Unpack results
+flow_value, paths, simplified_flows, original_flows = results
+```
+
+### DataIngestion
+
+Handles data loading and preprocessing:
+
+```python
+from src.data_ingestion import DataIngestion
+import pandas as pd
+
+# Load data
+df_trusts = pd.read_csv("data/trust.csv")
+df_balances = pd.read_csv("data/balance.csv")
+
+# Initialize ingestion
+data = DataIngestion(df_trusts, df_balances)
+
+# Access mappings
+node_id = data.get_id_for_address("0x3fb4...")
+address = data.get_address_for_id("42")
+```
+
+### NetworkXGraph / GraphToolGraph
+
+Graph implementation wrappers:
+
+```python
+from src.graph import NetworkXGraph
+
+# Create graph
+graph = NetworkXGraph(edges, capacities, tokens)
+
+# Compute flow
+flow_value, flow_dict = graph.compute_flow(
+    source="42",
+    sink="318",
+    flow_func=nx.algorithms.flow.preflow_push
+)
+
+# Decompose into paths
+paths, edge_flows = graph.flow_decomposition(
+    flow_dict, "42", "318"
+)
+```
+
+### NetworkFlowAnalysis
+
+Handles core flow computations:
+
+```python
+from src.flow.analysis import NetworkFlowAnalysis
+
+# Initialize analyzer
+analyzer = NetworkFlowAnalysis(graph)
+
+# Analyze flow
+flow_value, paths, simplified_flows, original_flows = analyzer.analyze_flow(
+    source="42",
+    sink="318",
+    flow_func=None,
+    requested_flow="4000000000000000000"
+)
+```
+
+### Visualization
+
+Creates analysis visualizations:
+
+```python
+from src.visualization import Visualization
+
+# Initialize visualizer
+viz = Visualization()
+
+# Create path visualization
+viz.plot_flow_paths(
+    graph,
+    paths,
+    simplified_flows,
+    id_to_address,
+    "output/paths.png"
+)
+
+# Create full graph visualization
+viz.plot_full_flow_paths(
+    graph,
+    original_flows,
+    id_to_address,
+    "output/full_graph.png"
+)
+```
 
 ## Running the Script
 
-1. Ensure your input data files are in the `data/` directory:
-   - `circles_public_V_CrcV2_TrustRelations.csv`: Trust relationships data
-   - `circles_public_V_CrcncesByAccountAndToken.csv`: Account balances data
+### 1. Data Preparation
 
-2. Run the main script:
-   ```
-   python -m src.main
-   ```
+Place data files in the `data/` directory:
+```
+data/
+├── trust.csv          # Trust relationships
+└── balance.csv        # Account balances
+```
 
-3. Choose a mode:
-   - Enter `1` for Run Mode
-   - Enter `2` for Benchmark Mode
+Required CSV formats:
+```python
+# trust.csv
+trustee,truster
+0x3fb4...,0xe98f...
 
-4. Follow the prompts to input source and sink nodes, choose algorithms, etc.
+# balance.csv
+account,tokenAddress,demurragedTotalBalance
+0x3fb4...,0xe98f...,4000000000000000000
+```
 
-5. View the results in the console and check the `output/` directory for visualizations and benchmark results.
+### 2. Analysis Execution
 
-### Features
+Run the analysis:
+```bash
+python -m src.main
+```
 
-1. **Graph Library Selection**: Choose between NetworkX and graph-tool for graph operations.
-2. **Algorithm Selection**: Select from various maximum flow algorithms:
-   - Default (Preflow Push)
-   - Edmonds-Karp
-   - Shortest Augmenting Path
-   - Boykov-Kolmogorov
-   - Dinitz
-3. **Source and Sink Input**: Enter Ethereum addresses for source and sink nodes.
-4. **Requested Flow**: Optionally specify a requested flow value.
-5. **Results Display**: View detailed results of the flow analysis.
-6. **Visualization**: Interactive graphs showing flow paths.
+Select mode when prompted:
+```
+Choose mode:
+1. Run Mode (analyze specific flow)
+2. Benchmark Mode (compare algorithms)
+
+Enter choice (1-2):
+```
+
+### 3. Analysis Configuration
+
+For Run Mode, enter:
+- Source address (42-char hex)
+- Sink address (42-char hex)
+- Flow amount (optional)
+- Algorithm choice:
+  1. Preflow Push (default)
+  2. Edmonds-Karp
+  3. Shortest Augmenting Path
+  4. Boykov-Kolmogorov
+  5. Dinitz
+
+### 4. Results Analysis
+
+The script produces:
+1. Console output:
+   - Flow value
+   - Computation time
+   - Path details
+   - Performance metrics
+
+2. Visualization files:
+   - `output/simplified_paths.png`
+   - `output/full_paths.png`
+   - `output/metrics.csv`
 
 ## Examples
 
-### Run Mode Example
+### 1. Basic Flow Analysis
 
-1. Run the script and choose Run Mode (option 1)
-2. When prompted, enter:
-   - Source node: `9`
-   - Sink node: `318`
-   - Requested flow: (press Enter for maximum flow)
-3. Choose an algorithm (e.g., 1 for Default Preflow Push)
-4. The script will output:
-   - Flow value
-   - Execution time
-   - Paths and edge flows
-5. Check the `output/` directory for visualizations:
-   - `simplified_flow_paths.png`: Simplified flow paths
-   - `full_flow_paths.png`: Full flow paths including intermediate nodes
+```python
+from src.graph_manager import GraphManager
 
-### Benchmark Mode Example
+# Initialize manager
+manager = GraphManager(
+    data_source=("data/trust.csv", "data/balance.csv"),
+    graph_type="networkx"
+)
 
-1. Run the script and choose Benchmark Mode (option 2)
-2. The script will run all algorithms for predefined source-sink pairs
-3. View the benchmark results in the console
-4. Check `output/benchmark_results.csv` for detailed results
+# Analyze maximum flow
+results = manager.analyze_flow(
+    source="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0",
+    sink="0xe98f0672a8e31b408124f975749905f8003a2e04"
+)
+
+# Process results
+flow_value, paths, simplified_flows, original_flows = results
+
+print(f"Maximum flow: {flow_value}")
+for path, tokens, flow in paths:
+    print("\nPath:")
+    print(f"Nodes: {' -> '.join(path)}")
+    print(f"Tokens: {' -> '.join(tokens)}")
+    print(f"Flow: {flow}")
+```
+
+### 2. Arbitrage Detection
+
+```python
+# Initialize with graph-tool for performance
+manager = GraphManager(
+    data_source=("data/trust.csv", "data/balance.csv"),
+    graph_type="graph_tool"
+)
+
+# Find arbitrage opportunities
+flow_value, paths, flows = manager.analyze_arbitrage(
+    source="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0",
+    start_token="0xe98f0672a8e31b408124f975749905f8003a2e04",
+    end_token="0x123..."
+)
+
+if flow_value > 0:
+    print(f"\nFound arbitrage: {flow_value} mCRC")
+    for path, tokens, amount in paths:
+        print(f"\nPath: {' -> '.join(path)}")
+        print(f"Token conversions: {' -> '.join(tokens)}")
+        print(f"Amount: {amount} mCRC")
+```
+
+### 3. Performance Benchmarking
+
+```python
+import time
+from src.graph_manager import GraphManager
+
+implementations = ["networkx", "graph_tool", "ortools"]
+results = []
+
+for impl in implementations:
+    manager = GraphManager(
+        data_source=("data/trust.csv", "data/balance.csv"),
+        graph_type=impl
+    )
+    
+    start_time = time.time()
+    flow_value, _, _, _ = manager.analyze_flow(
+        source="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0",
+        sink="0xe98f0672a8e31b408124f975749905f8003a2e04"
+    )
+    duration = time.time() - start_time
+    
+    results.append({
+        "implementation": impl,
+        "flow_value": flow_value,
+        "computation_time": duration
+    })
+
+for result in results:
+    print(f"\n{result['implementation']}:")
+    print(f"Flow: {result['flow_value']}")
+    print(f"Time: {result['computation_time']:.4f}s")
+```
 
 ## Dashboard
 
-<img src="img/dashboard1.png" alt="pyfinder" style="height:150px;width:250px;"> <img src="img/dashboard2.png" alt="pyfinder" style="height:150px;width:250px;"> <img src="img/dashboard3.png" alt="pyfinder" style="height:150px;width:250px;">
+<img src="img/dashboard1.png" alt="pyfinder" style="height:200px;width:350px;"> <img src="img/dashboard2.png" alt="pyfinder" style="height:200px;width:350px;"> <img src="img/dashboard3.png" alt="pyfinder" style="height:200px;width:350px;">
 
-1. **Controls**: Input fields for source, sink, requested flow, and algorithm selection.
-2. **Results**: Displays the computed flow value, execution time, and other key metrics.
-3. **Transactions**: Shows a detailed list of transfers in the computed flow.
-4. **Flow Path Graphs**: Two interactive visualizations side by side:
-   - **Simplified Graph**: Displays a simplified version of the flow, hiding intermediate nodes.
-   - **Aggregated Graph**: Presents an aggregated view of transfers between main nodes.
+The dashboard provides an interactive web interface for analysis:
 
-These visualizations provide different levels of detail, allowing users to analyze the flow from various perspectives.
+### Components
 
-To launch the dashboard, run:
+1. Data Source Configuration
+   - File upload
+   - PostgreSQL connection
+   - Environment configuration
 
+2. Analysis Controls
+   - Source/sink selection
+   - Algorithm choice
+   - Flow amount input
+
+3. Visualization Panels
+   - Network overview
+   - Path visualization
+   - Flow metrics
+
+4. Results Display
+   - Flow statistics
+   - Path breakdown
+   - Transaction list
+
+### Launch Options
+
+1. Direct Python:
+```bash
+python run.py
 ```
-python dashboard.py
+
+2. Docker Compose:
+```bash
+docker compose up
 ```
 
-This will start a local server, and you can access the dashboard through your web browser.
+3. Manual Docker:
+```bash
+docker build -t pyfinder .
+docker run -p 5006:5006 pyfinder
+```
 
+Access the dashboard at `http://localhost:5006`
 
 ## License
 
