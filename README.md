@@ -463,7 +463,7 @@ for result in results:
 
 ## Dashboard
 
-<img src="img/dashboard1.png" alt="pyfinder" style="height:200px;width:350px;"> <img src="img/dashboard2.png" alt="pyfinder" style="height:200px;width:350px;"> <img src="img/dashboard3.png" alt="pyfinder" style="height:200px;width:350px;">
+<img src="img/dashboard1.png" alt="pyfinder" style="height:200px;width:350px;"> <img src="img/dashboard2.png" alt="pyfinder" style="height:200px;width:350px;"> <img src="img/dashboard4.png" alt="pyfinder" style="height:200px;width:350px;"> <img src="img/dashboard3.png" alt="pyfinder" style="height:200px;width:350px;">
 
 The dashboard provides an interactive web interface for analysis:
 
