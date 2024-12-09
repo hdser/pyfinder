@@ -19,8 +19,8 @@ class AnalysisComponent(BaseComponent):
     graph_library = param.Selector(default="NetworkX", objects=["NetworkX", "graph-tool", "OR-Tools"])
 
     # Analysis parameters (initially disabled)
-    source = param.String(default="0x3fb47823a7c66553fb6560b75966ef71f5ccf1d0")
-    sink = param.String(default="0xe98f0672a8e31b408124f975749905f8003a2e04")
+    source = param.String(default="0x42cEDde51198D1773590311E2A340DC06B24cB37")
+    sink = param.String(default="0x14c16ce62d26fd51582a646e2e30a3267b1e6d7e")
     requested_flow_mCRC = param.String(default="")
     algorithm = param.Selector(default="Preflow Push", objects=[
         "Preflow Push",

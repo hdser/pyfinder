@@ -1,4 +1,4 @@
-SELECT
-    t1."canSendTo" AS truster
-   ,t1.user        AS trustee
-FROM "V_CrcV1_TrustRelations" t1
+select 
+    truster
+        , trustee
+from "V_CrcV2_TrustRelations"

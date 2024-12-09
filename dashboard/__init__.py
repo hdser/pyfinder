@@ -1,4 +1,5 @@
 from .dashboard import NetworkFlowDashboard, create_dashboard
+from .mini_dashboard import AutoConfigDashboard, create_mini_dashboard
 from .base_component import BaseComponent
 from .analysis_component import AnalysisComponent
 from .base import DataSourceComponent
@@ -10,6 +11,8 @@ from .interactive_visualization import InteractiveVisualization
 __all__ = [
     'NetworkFlowDashboard',
     'create_dashboard',
+    'AutoConfigDashboard',
+    'create_mini_dashboard',
     'BaseComponent',
     'DataSourceComponent',
     'CSVDataSourceComponent',

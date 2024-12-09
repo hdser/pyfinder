@@ -8,7 +8,8 @@ services:
     ports:
       - "5006:5006"
     volumes:
-      - ./data:/app/data  
+      #- ./data:/app/data  
+      - ./queries:/app/queries
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
@@ -17,12 +18,17 @@ services:
       - PORT=5006
       - BOKEH_ALLOW_WS_ORIGIN=localhost:5006,0.0.0.0:5006,127.0.0.1:5006
       - BOKEH_WEBSOCKET_MAX_MESSAGE_SIZE=20971520
+      - POSTGRES_HOST=${POSTGRES_HOST:-localhost}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-circles}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 2G
         reservations:
-          memory: 3G
+          memory: 1G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5006"]

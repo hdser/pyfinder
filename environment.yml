@@ -16,6 +16,8 @@ dependencies:
   - dask
   - dask-core
   - graph-tool
+  - pytest
+  - pytest-benchmark
   - pip
   - pip:
     - ortools==9.11.4210

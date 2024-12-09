@@ -43,7 +43,7 @@ COPY data /app/data
 RUN echo '#!/bin/bash\n\
 source /opt/conda/etc/profile.d/conda.sh\n\
 conda activate pyfinder\n\
-exec python -u run.py\n'\
+exec python -u run_mini.py\n'\
 > /app/start.sh && chmod +x /app/start.sh
 
 # Expose port
