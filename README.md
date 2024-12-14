@@ -1,8 +1,6 @@
-# PyFinder
+![Header](img/header-pyfinder.png)
 
-<img src="img/pyfinder2.webp" alt="pyfinder" style="height:300px;width:900px;">
-
-This project provides the Python implementation of the Pathfinder tool for the Circles UBI project. It includes network flow algorithms and tools to analyze and visualize the flow of value through a network of trust-based connections, facilitating the understanding and optimization of value transfers in the Circles UBI ecosystem.
+__PyFinder__ provides the Python implementation of the Pathfinder tool for the Circles UBI project. It includes network flow algorithms and tools to analyze and visualize the flow of value through a network of trust-based connections, facilitating the understanding and optimization of value transfers in the Circles UBI ecosystem.
 
 ## Table of Contents
 1. [Methodology](#methodology)
