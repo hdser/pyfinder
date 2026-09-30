@@ -1,0 +1,46 @@
+# Site settings
+title: PyFinder Documentation
+description: Documentation for network flow algorithms implementation using NetworkX and graph-tool
+baseurl: "/pyfinder-docs" 
+url: "https://hdser.github.io" 
+
+# Build settings
+remote_theme: pmarsceill/just-the-docs
+
+# Theme settings
+color_scheme: light
+search_enabled: true
+
+# Aux links for the upper right navigation
+aux_links:
+  "View on GitHub":
+    - "https://github.com/hdser/pyfinder-docs"
+
+# Footer content
+footer_content: "Copyright &copy; 2024 hdser. Distributed by an <a href=\"https://github.com/hdser/pyfinder-docs/tree/main/LICENSE.txt\">MIT license.</a>"
+
+# Include additional assets
+include:
+  - assets
+
+# Collections for organizing content
+collections:
+  theoretical_background:
+    permalink: "/:collection/:path/"
+    output: true
+  implementation:
+    permalink: "/:collection/:path/"
+    output: true
+  dashboard:
+    permalink: "/:collection/:path/"
+    output: true
+  benchmarks:
+    permalink: "/:collection/:path/"
+    output: true
+
+just_the_docs:
+  collections:
+    theoretical_background:
+    implementation:
+    dashboard:
+    benchmarks:
